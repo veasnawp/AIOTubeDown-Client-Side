@@ -1,0 +1,27 @@
+.header {
+  transition:cubic-bezier(0.6, -0.28, 0.735, 0.045);
+}
+
+.user {
+  &[type="button"] {
+    color: light-dark(var(--mantine-color-black), var(--mantine-color-dark-0));
+    padding: 4px 6px;
+    border-radius: var(--mantine-radius-sm);
+    transition: background-color 100ms ease;
+  }
+
+  &:hover {
+    background-color: light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-8));
+  }
+}
+  
+.username {
+  @media (max-width: $mantine-breakpoint-xs) {
+    display: none;
+  }
+}
+  
+.userActive {
+  &[type="button"] {
+    background-color: light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-8));  }
+}

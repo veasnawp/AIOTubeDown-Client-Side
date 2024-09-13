@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <link href='/css/jwplayer.css' rel='stylesheet' />
+    <title>Video Player</title>
+    <script src='/libs/jwplayer.js' type='text/javascript'></script>
+  </head>
+<body>
+  <style>
+    #player {
+      position: absolute;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .jwplayer .jw-rightclick .jw-rightclick-list {
+      border-radius: 1px;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: none;
+    }
+  </style>
+  <!-- Player -->
+  <div id="player"></div>
+  <script type="text/javascript">
+    var jwDefaults = {
+      aspectratio: "16:9",
+      width: "100%",
+      sharing: true,
+      autostart: true,
+      skin: { name: "netflix" },
+      logo: {
+        file: "",
+        link: "",
+        hide: false,
+        margin: "10",
+        position: "bottom-left"
+      },
+    };
+    jwDefaults.key = "64HPbvSQorQcd52B8XFuhMtEoitbvY/EXJmMBfKcXZQU2Rnn"
+    jwplayer.defaults = {
+      ...jwplayer.defaults, ...jwDefaults
+    };
+  </script>
+  <!-- <script type='text/javascript'>
+    var jwDefault = {advertising: {
+      client: "vast", 
+      skiptext: "Skip Ad", 
+      skipmessage: "Skip Ad in (XXs)", 
+      admessage: "Skip Ad after XX Seconds", 
+      schedule: {
+        adbreak1: { 
+          offset: 'pre', 
+          tag: 'https://res.cloudinary.com/dbkr8dqv1/raw/upload/v1718122421/JW%20Player/Video_ADS.html', 
+          skipoffset: 0, 
+        }
+      }
+    }};
+  </script> -->
+  <script src='/libs/playerInstance.js' type='text/javascript'></script>
+  <script>
+    //getPlaylist("22ddf7ff6dfda60354f5e67b51b8270eed68eddd", "postname");
+    var params = new URLSearchParams(location.search)
+    var dataString = decodeURIComponent(params.get('data'))
+    if(dataString){
+      var data = JSON.parse(dataString)
+      var i = 0;
+      for(let source of data.sources){
+        data.sources[i].file = source.file
+        i++;
+      }
+      window.jwPlayerData = data
+      var timer = setTimeout(()=>{
+        clearTimeout(timer);
+        plyerInstance(window.jwPlayerData);
+        console.log(window.jwPlayerData)
+      },1000)
+    }
+  </script>
+</body>
+
+</html>

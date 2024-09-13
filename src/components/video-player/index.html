@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<html lang="km">
+
+<head>
+
+  <head>
+    <link
+      href='https://rawcdn.githack.com/veasnawp/KDrama/2dab5281a447df1239fb0561a25e97245f099864/assets/css/jwplayer.2.0.8.css'
+      rel='stylesheet' />
+    <title>Video Player</title>
+  </head>
+
+<body>
+  <script crossorigin='anonymous'
+    integrity='sha512-E8QSvWZ0eCLGk4km3hxSsNmGWbLtSCSUcewDQPQWZF6pEU8GlT8a5fF32wOl1i8ftdMhssTrF/OhyGWwonTcXA=='
+    referrerpolicy='no-referrer' src='https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js'></script>
+  <script
+    src='http://localhost:49007/libs/jwplayer.js'
+    type='text/javascript'></script>
+  <style>
+    #player {
+      position: absolute;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .jwplayer .jw-rightclick .jw-rightclick-list {
+      border-radius: 1px;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: none;
+    }
+  </style>
+  <!-- Player -->
+  <div id="player"></div>
+  <!-- <script type="text/javascript">jwplayer.key = "64HPbvSQorQcd52B8XFuhMtEoitbvY/EXJmMBfKcXZQU2Rnn";</script> -->
+  <script type="text/javascript">
+    var jwDefaults = {
+      "aspectratio": "16:9",
+      advertising: {
+        client: "vast", 
+        skiptext: "Skip Ad", 
+        skipmessage: "Skip Ad in (XXs)", 
+        admessage: "Skip Ad after XX Seconds", 
+        schedule: {
+          adbreak1: { 
+            offset: 'pre', 
+            tag: 'https://res.cloudinary.com/dbkr8dqv1/raw/upload/v1718122421/JW%20Player/Video_ADS.html', skipoffset: 5, 
+          }
+        }
+      },
+      width: "100%",
+      "sharing": true,
+      "skin": { name: "netflix" },
+      "logo": {
+        "file": "https://logos-world.net/wp-content/uploads/2020/04/YouTube-Logo.png",
+        "link": "https://www.youtube.com",
+        "hide": false,
+        "margin": "10",
+        "position": "bottom-left"
+      },
+    };
+    jwDefaults.key = "64HPbvSQorQcd52B8XFuhMtEoitbvY/EXJmMBfKcXZQU2Rnn"
+    jwplayer.defaults = {
+      ...jwplayer.defaults, ...jwDefaults
+    };
+  </script>
+  <!-- <script src='https://rawcdn.githack.com/veasnawp/KDrama/22ddf7ff6dfda60354f5e67b51b8270eed68eddd/assets/js/helper.js'
+    type='text/javascript'></script> -->
+  <script src='http://localhost:49007/libs/playerInstance.js' type='text/javascript'></script>
+  <script>
+    //getPlaylist("22ddf7ff6dfda60354f5e67b51b8270eed68eddd", "postname");
+    plyerInstance()
+  </script>
+</body>
+
+</html>

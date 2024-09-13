@@ -1,0 +1,104 @@
+.wrapper {
+  position: relative;
+  padding-top: rem(120px);
+  padding-bottom: rem(80px);
+
+  @media (max-width: $mantine-breakpoint-sm) {
+    padding-top: rem(80px);
+    padding-bottom: rem(60px);
+  }
+}
+
+.inner {
+  position: relative;
+  z-index: 1;
+}
+
+.dots {
+  position: absolute;
+  color: light-dark(var(--mantine-color-gray-4), var(--mantine-color-dark-5));
+
+  @media (max-width: $mantine-breakpoint-sm) {
+    display: none;
+  }
+}
+
+.dotsLeft {
+  left: 0;
+  top: 0;
+}
+
+.title {
+  text-align: center;
+  font-weight: 800;
+  font-size: rem(36px) !important;
+  letter-spacing: -1px;
+  color: light-dark(var(--mantine-color-black), var(--mantine-color-white));
+  margin-bottom: var(--mantine-spacing-xs);
+  font-family:
+    Greycliff CF,
+    var(--mantine-font-family);
+
+  @media (max-width: $mantine-breakpoint-md) {
+    font-size: rem(28px) !important;
+  }
+  @media (max-width: $mantine-breakpoint-xs) {
+    font-size: rem(22px) !important;
+  }
+}
+
+.highlight {
+  color: light-dark(var(--mantine-color-blue-6), var(--mantine-color-blue-4)) !important;
+}
+
+.description {
+  text-align: center;
+
+  @media (max-width: $mantine-breakpoint-xs) {
+    text-align: left;
+  }
+}
+
+.controls {
+  margin-top: var(--mantine-spacing-lg);
+  display: flex;
+  justify-content: center;
+
+  @media (max-width: $mantine-breakpoint-xs) {
+    flex-direction: column;
+  }
+}
+
+.control {
+  &:not(:first-of-type) {
+    margin-left: var(--mantine-spacing-md);
+  }
+
+  @media (max-width: $mantine-breakpoint-xs) {
+    height: rem(42px);
+    font-size: var(--mantine-font-size-md);
+
+    &:not(:first-of-type) {
+      margin-top: var(--mantine-spacing-md);
+      margin-left: 0;
+    }
+  }
+}
+
+.cardPricing {
+  position: relative;
+  padding: rem(16px);
+  padding-bottom: rem(48px);
+  padding-top: 0;
+  box-shadow: 0 0 #fff0, 0 0 #fff0, 0 1px 3px 0 rgb(255 255 255 / 10%), 0 1px 2px 0 rgb(255 255 255 / 6%);
+  border: 2px solid var(--mantine-color-orange-6);
+  border-radius: 6px;
+  cursor: default;
+
+  &:hover {
+    box-shadow: 0 0 #fff0, 0 0 #fff0, 0 1px 12px 0 light-dark(rgb(0 0 0 / 10%), rgb(255 255 255 / 10%)), 0 1px 12px 0 light-dark(rgb(0 0 0 / 6%), rgb(255 255 255 / 6%));
+    transition-property: all;
+    transition-delay: .5;
+    transition-timing-function: cubic-bezier(.4,0,.2,1);
+  }
+}

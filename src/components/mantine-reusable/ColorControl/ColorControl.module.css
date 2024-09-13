@@ -1,0 +1,5 @@
+.root {
+    & .mantine-ScrollArea-viewport {
+        padding: 0;
+    }
+}

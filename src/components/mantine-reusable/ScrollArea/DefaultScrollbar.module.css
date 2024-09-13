@@ -1,0 +1,19 @@
+.scrollbar {
+    &,
+    &:hover {
+      background-color: transparent;
+      /* margin-top: 16px; */
+    }
+  
+    &[data-orientation='vertical'] .thumb, 
+    &[data-orientation='horizontal'] .thumb {
+      background-color: alpha(var(--mantine-color-blue-6), 0.15);
+    }
+  
+  
+    &[data-orientation='vertical'] .thumb:hover, 
+    &[data-orientation='horizontal'] .thumb:hover {
+      background-color: alpha(var(--mantine-color-blue-6), 0.3);
+    }
+  
+}
