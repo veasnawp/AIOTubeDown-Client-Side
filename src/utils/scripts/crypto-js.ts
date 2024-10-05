@@ -4,10 +4,11 @@
 import { AppName } from "@/App/config";
 import { decodeJsonBtoa, encodeJsonBtoa } from "..";
 
+export { simpleSecretKey } from './keys'
+
 export const CryptoJs = () => window?.WindowCrypto?.__CryptoJS__;
 
 export const SIMPLE_KEY = AppName;
-// export const SIMPLE_SECRET_KEY = ["1","2","3","4","5","6","7","8","9"].join('')
 
 export function getDeviceId(num:number) {
   const o = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -32,11 +33,6 @@ export function convertToHex(str) {
       hex += ''+str.charCodeAt(i).toString(16);
   }
   return hex;
-}
-
-// 123456789
-export function simpleSecretKey() {
-  return convertFromHex('317c327c337c347c357c367c377c387c39').replace(/\|/g, '')
 }
 
 
