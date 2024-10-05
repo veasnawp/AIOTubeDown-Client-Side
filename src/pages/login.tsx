@@ -1,18 +1,18 @@
-import { Link, useLocation, useNavigate } from "react-router-dom"
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import { useForm } from "@tanstack/react-form"
 import React, { useEffect, useState } from "react"
 import { useAuth, useLicenseRecord } from "@/contexts"
 import { v4 as uuid } from "uuid";
 import logger from "@/helper/logger"
 import { accessTokenRedirect } from "@/api/blogger/google.connect"
-import { useEffectColorScheme } from "./main"
+import { ipcToggleColorScheme, useEffectColorScheme } from "./main"
 import ToggleDarkMode from "@/components/mantine-reusable/ColorSchemes/ToggleDarkMode"
 import { Box, Button, Card, Flex, PasswordInput, ScrollArea, Text, TextInput, Title } from "@mantine/core"
 import { IconAt, IconLock, IconUserCircle } from "@tabler/icons-react";
 import { AppLogo } from "@/App/logo";
 import { CopyrightFooter } from "./Dashboard/dashboard";
 import { ContextMenu, useContextMenu } from "@/components/ContextMenu";
-import { isDesktopApp } from "@/App/electron/ipc";
+import { ipcRendererInvoke, isDesktopApp, webContentSend } from "@/App/electron/ipc";
 import { isArray } from "@/utils";
 
 
@@ -63,6 +63,7 @@ export function AuthenticationForm() {
   const { getLicenseRecords } = useLicenseRecord();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams()
   const isLoginPage = location.pathname === '/login';
   const isRegisterPage = location.pathname === '/register';
 
@@ -102,17 +103,24 @@ export function AuthenticationForm() {
             setCheckAccount('Please don\'t created many accounts')
           }
         } else {
-          if(isDesktopApp){
-            if (user._id && isArray(user.licenses) && user.licenses.length > 0) {
-              const licenses = await getLicenseRecords(user._id);
-              onUserChange({...user, licenses: licenses || user.licenses});
-            }
-            setTimeout(()=>{
-              navigate('/dashboard', { replace: true })
-            },500)
-          } else {
-            window.location.href = `${window.origin}/dashboard`
+          if (user._id && isArray(user.licenses) && user.licenses.length > 0) {
+            const licenses = await getLicenseRecords(user._id);
+            onUserChange({...user, licenses: licenses || user.licenses});
           }
+
+          setTimeout(()=>{
+            const from = searchParams.get('from');
+            if(from){
+              navigate(from, {replace: true})
+            } else {
+              navigate('/dashboard', {replace: true})
+            }
+            ipcToggleColorScheme(colorScheme);
+          },500)
+          // if(isDesktopApp){
+          // } else {
+          //   window.location.href = `${window.origin}/dashboard`
+          // }
         }
       }
     },
@@ -127,7 +135,20 @@ export function AuthenticationForm() {
     // )}&include_granted_scopes=true&response_type=token&client_id=${CLIENT_ID}&scope=https%3A//www.googleapis.com/auth/blogger&state=pass-through%20value`;
     // // 'openid%20email%20profile%'
     // window.location.href = targetUrl;
-    accessTokenRedirect(to)
+    if(isDesktopApp){
+      accessTokenRedirect(to, (oauthUrl)=>{
+        ipcRendererInvoke('win:child', oauthUrl, 
+          {
+            // devTool: isDev ? true : false, 
+            modal: false,
+            // minimizable: false, maximizable: false, resizable: false,
+          },
+          // {device: "mobile"}
+        )
+      })
+    } else {
+      accessTokenRedirect(to)
+    }
   };
 
   // fetch('https://www.googleapis.com/blogger/v3/blogs/8070105920543249955/posts/', {
@@ -150,6 +171,18 @@ export function AuthenticationForm() {
   useEffect(() => {
     if(checkAccount)
     setCheckAccount('')
+    if(isDesktopApp && ['/login','/register'].some(p => p === location.pathname)){
+      webContentSend("get-value:successful-login", ()=> {
+        // logger?.log("data",data)
+        ipcRendererInvoke("win:child-CLOSE-APP");
+        setIsLoading(true);
+        setTimeout(()=>{
+          setIsLoading(false);
+          // navigate('/dashboard', {replace: true});
+          window.location.href = window.origin + '/dashboard'
+        },1000)
+      })
+    }
   },[location])
 
 
@@ -378,7 +411,7 @@ export function LoginForm() {
             <div id="titleBarOverlay" className={isDesktopApp ? "w-32" : "hidden"}></div>
           </div>
         </div>
-        <ScrollArea className='mx-auto min-w-80 sm:min-w-[480px]' h={'calc(100vh - 0px)'} scrollbarSize={0}>
+        <ScrollArea className='mx-auto min-w-80 sm:min-w-[480px] max-w-[calc(100%-20px)] xxs:max-w-full' h={'calc(100vh - 0px)'} scrollbarSize={0}>
           <AuthenticationForm/>
         </ScrollArea>
         <ContextMenu showContextMenu={showContextMenu} points={points}/>

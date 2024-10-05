@@ -8,11 +8,38 @@ import type * as nodeUrl from "url";
 
 export {};
 
+export interface Telegram {
+  telegram: {
+    personal: string;
+    channel: string;
+  }
+}
+
+export interface MainAssets {
+	folder_history: string;
+	cpu: string;
+	logfile: string;
+	publish$link: Telegram;
+	moderators: {userId: string}[];
+  dev$settings: {
+    __giveaway: {
+      active: boolean
+      date: string
+    },
+	  promotion: {
+      discount: number
+      lifeTimePlan: boolean
+    },
+    ABALinkId?: string
+  }
+}
+
 declare global {
   interface Window extends Electron, RequestInitElectron {
     appASar: AppASarPath;
     node: NodePolyfill;
     userSession?: UserPayload
+    mainAssets: Prettify<MainAssets>
   }
     interface ElectronProps {
         app: App;

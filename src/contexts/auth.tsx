@@ -4,12 +4,15 @@ import logger, { loggerTime } from "@/helper/logger";
 import { encodeJsonBtoa, sleep } from "@/utils";
 import React, { createContext, useEffect, useState } from "react";
 import { useSetState } from "@mantine/hooks";
+import { Notifications } from "@mantine/notifications";
 
 export interface AuthContextType {
-  stateHelper: {
+  stateHelper: Partial<{
     serverIsLive: boolean
     server_host?: string
-  } & Record<string, any>;
+    refreshColorScheme: boolean
+    notificationsProps?: React.ComponentProps<typeof Notifications>
+  } & Record<string, any>>;
   setStateHelper: (val: AuthContextType['stateHelper']) => void
   currentDate: Date;
   setCurrentDate: (val: Date) => void
@@ -162,6 +165,7 @@ export const removeUserStorage = () => {
     localStorage.removeItem("avatar")
 }
 
+
 export const avatarUrl = (avatarUrl?: string) => {
   let avatar = avatarUrl ? '/goto/api/v1/display-image?url='+encodeURIComponent(avatarUrl) : ''
   let avatarStorage = localStorage.getItem('avatar')
@@ -177,7 +181,7 @@ export const AuthProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
-  const [stateHelper, setStateHelper] = useSetState({
+  const [stateHelper, setStateHelper] = useSetState<Partial<AuthContextType['stateHelper']>>({
     serverIsLive: false,
   });
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -189,8 +193,9 @@ export const AuthProvider = ({
   });
   const userId = user._id || user.userId
   // const isLoggedIn = Boolean(user && user._id && user.email);
-  const isLoggedIn = Boolean(user && ((user._id && user.email) || user.token));
-  const isAdmin = isLoggedIn && user.role === "admin"
+  const __isLoggedIn = Boolean(user && ((user._id && user.email) || user.token));
+  const isLoggedIn = isDesktopApp ? true : __isLoggedIn
+  const isAdmin = __isLoggedIn && user.role === ["n","i","m","d","a"].reverse().join('');
 
   const onUserChange = (user: Partial<UserPayload>) => {
     // if(user?.authentication?.ip){
@@ -221,13 +226,15 @@ export const AuthProvider = ({
   }
 
   const logOut = async () => {
-    const data = await fetchAuth(user, 'logout')
-    if(data){
-      // document.cookie = "MONEY-TRACKER-APP=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-      removeUserStorage()
-      setTimeout(() => {
-        setUser({} as any)
-      }, 500)
+    if(window?.navigator?.onLine && !isDesktopApp){
+      const data = await fetchAuth(user, 'logout')
+      if(data){
+        // document.cookie = "MONEY-TRACKER-APP=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        removeUserStorage()
+        setTimeout(() => {
+          setUser({} as any)
+        }, 500)
+      }
     }
   }
 
@@ -247,7 +254,7 @@ export const AuthProvider = ({
   }
 
   const updateUser = async (profileObj: Partial<UserPayload>, _id?: string) => {
-    const avatar = profileObj.avatar
+    // const avatar = profileObj.avatar
     if(profileObj.avatar?.includes('data:')){
       delete profileObj.avatar
     }
@@ -261,7 +268,7 @@ export const AuthProvider = ({
     if(error) return {error} as UserPayload
     if(!data) return;
     
-    onUserChange({...user, ...data, avatar});
+    onUserChange({...user, ...data});
     return data as UserPayload
   }
 

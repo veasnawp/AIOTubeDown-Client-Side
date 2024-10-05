@@ -27,7 +27,7 @@ async function initializeGapiClient() {
   });
 }
 
-export function accessTokenRedirect(to: "signup" | "login") {
+export function accessTokenRedirect(to: "signup" | "login", cb?:(oauthUrl:string)=>void) {
   const googleOAuth2 = {
     scope: 'openid+email+profile',
     state: "state_parameter_passthrough_value",
@@ -42,7 +42,12 @@ export function accessTokenRedirect(to: "signup" | "login") {
     })
     .join("&");
 
-  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${googleOAuth2_uri}`;
+  const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${googleOAuth2_uri}`;
+  if(cb){
+    cb(oauthUrl)
+  } else {
+    window.location.href = oauthUrl;
+  }
 }
 
 export function accessTokenRedirectTypeOffline(to: "signup" | "login") {

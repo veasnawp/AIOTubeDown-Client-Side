@@ -1,4 +1,4 @@
-import { isDesktopApp } from "@/App/electron/ipc";
+// import { isDesktopApp } from "@/App/electron/ipc";
 import { LoadRedirect } from "@/components/auth/require-auth";
 import { useAuth } from "@/contexts";
 import { Navigate, Outlet, useParams, } from "react-router-dom";
@@ -11,11 +11,13 @@ const ProductsLandingPage = () => {
     return <LoadRedirect to={"/products"} />
   }
 
-  return (
-    !isDesktopApp
-      ? isLoggedIn ? <Navigate to={"/products/" + productName} /> : <Outlet />
-      : <LoadRedirect to={"/products/" + productName} />
-  );
+  return isLoggedIn ? <Navigate to={"/products/" + productName} /> : <Outlet />
+  // return (
+  //   !isDesktopApp
+  //     ? isLoggedIn ? <Navigate to={"/products/" + productName} /> : <Outlet />
+  //     : <Navigate to={"/products/" + productName} />
+  //     // : <Outlet />
+  // );
 }
 
 

@@ -1,5 +1,6 @@
 import { formatDuration } from "@/utils/format";
 
+// const logger = console
 const logger = process.env.NODE_ENV !== "production" ? console : undefined;
 
 export function loggerTime(startTime: number) {

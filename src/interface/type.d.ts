@@ -3,6 +3,8 @@ import { FinancialRecord as FinancialRecordType, FinancialRecordContextProps as 
 import type jQuery from "jquery";
 
 import * as FileSystemAccess from 'wicg-file-system-access'
+import CryptoJS from "crypto-js";
+import { Encryption } from "@/utils/scripts/crypto-js";
 
 
 type UserPayLoadOptions = {
@@ -18,7 +20,17 @@ declare global {
     isAndroid: boolean
     isIOS: boolean
     isMobile: boolean
+		CryptoJS: any
+		WindowCrypto: WindowCrypto
+		Encryption: typeof Encryption
 	}
+	interface WindowCrypto {
+		__CryptoJS__: typeof CryptoJS
+	}
+	var WindowCrypto: {
+		prototype: WindowCrypto;
+		new(): WindowCrypto;
+	};
 	type Prettify<T> = {
 		[K in keyof T]: T[K]; // replace _
 	} & {};
@@ -47,11 +59,13 @@ declare global {
 			refreshToken: string
 			withSocial?: boolean
 		}
-    role?: "admin" | "user"
+    role?: "admin" | "moderator" | "user" | (string&{})
     provider?: 'credentials' | 'oauth'
 		licenses?: LicenseRecord[];
 		records?: FinancialRecord[];
 		options?: UserPayLoadOptions;
+    createdAt?: string
+    updatedAt?: string
 		error?: string | Error;
     token?: string
 	}>

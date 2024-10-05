@@ -24,9 +24,10 @@ export interface PreIYouTube extends OptionIYouTube {
     uploader_url?: string;
     extractor_key?: string;
     requested_formats?: Record<string, any>[];
-    video_only?: VideoFormat[];
-    audio_only?: VideoFormat[];
-    both?: VideoFormat[];
+    video_only?: VideoExtractFormat[];
+    audio_only?: VideoExtractFormat[];
+    both?: VideoExtractFormat[];
+    formats?: any[];
     user_info?:
       | {
           username: string;
@@ -45,10 +46,10 @@ export interface PreIYouTube extends OptionIYouTube {
 export interface OptionIYouTube extends Record<string, any> {
   url_dl?: string;
   linkDL?: string;
-  video_only?: VideoFormat[];
-  audio_only?: VideoFormat[];
-  both?: VideoFormat[];
-  requested_download?: VideoFormat[];
+  video_only?: VideoExtractFormat[];
+  audio_only?: VideoExtractFormat[];
+  both?: VideoExtractFormat[];
+  requested_download?: VideoExtractFormat[];
   onDownloading?: (videoId: string, formatIndex: number) => void;
   completed?: "downloading" | "completed" | "uncompleted" | (string&{});
   justExtracting?: boolean;
@@ -65,21 +66,70 @@ export interface OptionIYouTube extends Record<string, any> {
   metadata?: FileMetadata | null
 }
 
+export interface SimpleVideoExtractFormat {
+	url: string;
+	ext: string;
+	format: string;
+	format_id: string;
+	protocol: string;
+}
+export interface DefaultVideoExtractFormat {
+	url: string;
+	ext: string;
+	format: string;
+	format_id: string;
+	format_note: string;
+	width: number;
+	height: number;
+	aspect_ratio: number;
+	resolution: string;
+	dynamic_range: string;
+  filesize: number
+  filesize_approx: number
+	fps: number;
+	tbr: number;
+	vbr: number;
+  abr: number;
+	asr: number;
+	acodec: string;
+	vcodec: string;
+	container: string;
+	title: string;
+	protocol: string;
+	duration: number;
+	isDownloadable: boolean;
+}
 declare global {
   type IYouTube = Prettify<PreIYouTube>;
+  type OriginalVideoExtractFormat = Partial<DefaultVideoExtractFormat> & SimpleVideoExtractFormat
+  type VideoExtractFormat = {
+    tbr?: number;
+    fps?: number;
+    title: string;
+    ext?: string;
+    filesize?: string;
+    filesize_num?: number;
+    duration?: number;
+    url: string;
+    width: number;
+    height: number;
+    resolution: string;
+    format_id?: string;
+    video?: string;
+  } & Record<string,any>;
   type VideoFormat = {
-  ext: string;
-  filesize: string;
-  filesize_num: number;
-  width: number;
-  height: number;
-  resolution: string;
-  url: string;
-  video?: string;
-  file_path?: string;
-  output_path?: string;
-  folder_path?: string;
-  duration?: number;
+    ext: string;
+    filesize: string;
+    filesize_num: number;
+    width: number;
+    height: number;
+    resolution: string;
+    url: string;
+    video?: string;
+    file_path?: string;
+    output_path?: string;
+    folder_path?: string;
+    duration?: number;
   };
   
   interface FileMetadata extends Record<string, any> {

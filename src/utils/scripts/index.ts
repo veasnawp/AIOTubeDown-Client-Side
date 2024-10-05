@@ -1,4 +1,4 @@
-function lazyScript(src: string, onload: GlobalEventHandlers['onload']) {
+export function lazyScript(src: string, onload?: GlobalEventHandlers['onload']) {
   var script = document.createElement("script");
   (script.async = !0),
     (script.defer = !0),

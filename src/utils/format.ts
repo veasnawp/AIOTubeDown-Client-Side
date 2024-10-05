@@ -22,6 +22,14 @@ export function sizeToBytes(size:string){
 	return Math.floor(Math.pow(k, i) * Number(_size))
   };
 
+export function getBytesByTbr(duration:number, tbr:number){
+  return Math.round(duration * tbr * (1024 / 8))
+}
+
+export function getBytesByBitrate(duration:number, bitrate:number){
+  return Math.round(duration * bitrate / 8)
+}
+
 export function formatDuration(second: number, fullFormat = false) {
 	return new Date(second * 1000)
 		.toISOString()
@@ -61,4 +69,20 @@ export function formatDuration2(
 	let sec = String(_sec) + " seconds";
 
 	return `${hour}${min}${sec}`;
+}
+
+/**
+ * 
+ * @param durationFormat Value must be like this => 00:00:00 or 00:00
+ */
+export function durationFormatToSecond(durationFormat: string){
+	const durationArr = durationFormat.split(':').reverse();
+	let second = Number(durationArr[0])
+	if(Number(durationArr[1]) > 0){
+		second = second + (Number(durationArr[1]) * 60)
+	}
+	if(durationArr.length === 3 && Number(durationArr[2]) > 0){
+		second = second + (Number(durationArr[2]) * 3600)
+	}
+	return second;
 }

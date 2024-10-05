@@ -72,9 +72,20 @@ export const ContextMenu = ({
                   }
                 },
               },
-              { label: 'Reset Zoom', shortcut: 'Ctrl+0', separator: true,
+              { label: 'Reset Zoom', shortcut: 'Ctrl+0',
                 onClick: () => {
                   ipcRendererInvoke("reset-zoom")
+                },
+              },
+              { label: 'Reload', shortcut: 'Ctrl+R', separator: true,
+                onClick: async () => {
+                  let titleBarOverlay = {
+                    color: "rgba(40, 49, 66, 0)",
+                    symbolColor: "#ffffff",
+                    height: 50 - 2,
+                  }
+                  await ipcRendererInvoke('toggle-color-scheme', titleBarOverlay);
+                  window.location.href = window.location.origin
                 },
               },
               { label: 'Exit', shortcut: 'Alt+F4',

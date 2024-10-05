@@ -15,9 +15,24 @@ import { AuthProvider } from './contexts/auth.tsx'
 import { DownloadRecordProvider } from './contexts/download-data.tsx';
 import { isDesktopApp, renderer } from './App/electron/ipc.ts';
 import classesScrollbar from '@/components/mantine-reusable/ScrollArea/DefaultScrollbar.module.css';
-import { MainHook } from './pages/main.tsx';
+import { CheckAuth, MainHook } from './pages/main.tsx';
+import { webviewHelper } from './webview.ts';
+import DisableDevtool from 'disable-devtool';
+import logger from './helper/logger.ts';
+import { isDev } from './api/backend/config.ts';
+import { lazyScript } from './utils/scripts/index.ts';
+import { decryptionCryptoJs, encryptionCryptoJs } from './utils/scripts/crypto-js.ts';
 // import { gapiLoaded } from './api/blogger/google.connect.ts';
 
+DisableDevtool({
+  disableMenu: false,
+  ondevtoolopen(type){
+    logger?.log('Are You a Developer? => You\'are in type ' + type);
+    window.location.href = window.origin + '/tools/aiotubedown'
+    // next();
+  },
+  ignore: () => isDesktopApp || ['/dashboard-admin','/tools/'].some(v => window.location.pathname.startsWith(v)) || isDev,
+})
 const theme = createTheme({
   /** Put your mantine theme override here */
   components: {
@@ -51,21 +66,27 @@ const theme = createTheme({
 
 // gapiLoaded();
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme='light'>
-      <MainHook>
-        <AuthProvider>
-          <LicenseRecordProvider>
-            <DownloadRecordProvider>
-              <App />
-            </DownloadRecordProvider>          
-          </LicenseRecordProvider>
-        </AuthProvider>
-      </MainHook>
-    </MantineProvider>
-  </React.StrictMode>,
-)
+const root = document.getElementById('root')
+
+if(root){
+  ReactDOM.createRoot(root).render(
+    <React.StrictMode>
+      <MantineProvider theme={theme} defaultColorScheme='light'>
+        <MainHook>
+          <AuthProvider>
+            <LicenseRecordProvider>
+              <DownloadRecordProvider>
+                <CheckAuth>
+                  <App />
+                </CheckAuth>
+              </DownloadRecordProvider>          
+            </LicenseRecordProvider>
+          </AuthProvider>
+        </MainHook>
+      </MantineProvider>
+    </React.StrictMode>,
+  )
+}
 
 const script = document.createElement('script');
 script.async = true;
@@ -76,6 +97,27 @@ if(isDesktopApp){
 }
 document.body.appendChild(script);
 
+lazyScript('/assets/crypto-js.min.js', () => {
+  // setTimeout(()=>{
+  //   var __CryptoJS__ = window.CryptoJS;
+  //   if(window.CryptoJS){
+  //     window.CryptoJS = undefined;
+  //   }
+  //   class WindowCrypto {
+  //     __CryptoJS__ = __CryptoJS__
+  //   }
+  //   Window.prototype.WindowCrypto = new WindowCrypto
+  //   if(isDev){
+  //     class Encryption {
+  //       decryptionCryptoJs = decryptionCryptoJs
+  //       encryptionCryptoJs = encryptionCryptoJs
+  //     }
+  //     Window.prototype.Encryption = Encryption
+  //   }
+  // },1000)
+})
+
+webviewHelper();
 {/* <script type="text/javascript">
   setTimeout(() => {
     const script = document.createElement('script')

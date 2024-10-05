@@ -1,9 +1,9 @@
 import { ActionIcon, alpha, Box, Button, Card, Checkbox, Collapse, Divider, Fieldset, Flex, Indicator, List, LoadingOverlay, Modal, ModalProps, MultiSelect, NumberInput, Paper, Popover, rem, ScrollArea, Select, Switch, Text, Textarea, TextInput, Title, Tooltip, useMantineTheme} from '@mantine/core'
-import { useDisclosure, useIntersection, useResizeObserver, useSetState, useViewportSize } from '@mantine/hooks';
+import { useDisclosure, useHotkeys, useIntersection, useResizeObserver, useSetState, useViewportSize } from '@mantine/hooks';
 import { DownloadData, ExtractorFavicon, filterData, InfoCountType } from '../Dashboard/Data/download-data-table';
-import { IconCheck, IconCircle, IconDatabase, IconExternalLink, IconEye, IconFilter, IconFolderCog, IconHeart, IconMathEqualGreater, IconPlayerStop, IconSearch, IconSettings, IconSquareRoundedArrowDown, IconSquareRoundedPlus, IconTrash, IconWorld, IconX } from '@tabler/icons-react';
+import { IconCheck, IconDatabase, IconExternalLink, IconEye, IconFilter, IconFolderCog, IconHeart, IconMathEqualGreater, IconPlayerStop, IconSearch, IconSettings, IconSquareRoundedArrowDown, IconSquareRoundedPlus, IconTrash, IconWorld, IconX } from '@tabler/icons-react';
 import { useEffect, useRef, useState } from 'react';
-import { arraySplitting, encodeJsonBtoa, isNumber, isObject, isValidUrl, removeDuplicateObjArray, sleep, toCapitalized } from '@/utils';
+import { arraySplitting, encodeJsonBtoa, isArray, isNumber, isObject, isValidUrl, removeDuplicateObjArray, toCapitalized } from '@/utils';
 import { useAuth, useDownload, useLicenseRecord } from '@/contexts';
 import { downloadPopularSortByData, typeDownloadData, videoFormatSelection, youtubeSortByData } from '@/contexts/download-data';
 import logger, { loggerTime } from '@/helper/logger';
@@ -20,11 +20,16 @@ import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { dataProducts } from '../Products/data';
 import { getOneProductFilter } from '../Profile';
+import { notifications } from '@mantine/notifications';
+import { ModalComponent, useModalState } from '@/components/mantine-reusable/ModalComponent';
+import { decryptionCryptoJs, encryptionCryptoJs, generateHash } from '@/utils/scripts/crypto-js';
+import { getVideoMetadataByRequest } from '@/lib/utils_media';
+import { isFirstUserOnDesktop, isFirstUserTrialExpired } from '../useCheckSession';
 
 
 export const Dashboard = () => {
   const useAuthData = useAuth();
-  const { stateHelper } = useAuthData
+  const { stateHelper, setStateHelper } = useAuthData
   const useLicenseRecordData = useLicenseRecord();
 
   const useDownloadData = useDownload();
@@ -34,6 +39,12 @@ export const Dashboard = () => {
     simpleData, updateSimpleData,
     downloadProgressBar, updateDownloadProgressBar
   } = useDownloadData;
+
+  useHotkeys([
+    ['mod+o', () => {
+      openModal();
+    }],
+  ]);
 
   const [state, setState] = useSetState({
     dataDownloadSelected: [] as IYouTube[],
@@ -46,6 +57,12 @@ export const Dashboard = () => {
   const [openedDataInfo, { open: openDataInfo, close: closeDataInfo }] = useDisclosure(false);
   const [openedIFrame, { open: openIFrame, close: closeIFrame }] = useDisclosure(false);
   const [openedError, { open: openError, close: closeError }] = useDisclosure(false);
+
+
+  const { 
+    stateModalManager, 
+    openModalManager, closeModalManager 
+  } = useModalState();
 
   const [jwPlayerData, setJWPlayerData] = useState<any>('{}');
 
@@ -73,15 +90,114 @@ export const Dashboard = () => {
       }
     }
     if(extracting){
+      const id = notifications.show({
+        loading: true,
+        color: 'teal',
+        title: 'Extracting Video Info. . .',
+        message: 'Grab a cup of coffee and wait until it\'s successful.',
+        autoClose: false,
+        withCloseButton: true,
+      });
       (async function(){
         const extractorHelper = new ExtractorHelper()
         const extractor = new Extractor({downloadSettings});
         extractor.server_host = isDev ? isDevServerHost : (stateHelper.server_host || "")
-        extractor.onFinished = extractorHelper.onFinished
+        extractor.onFinished = function(data) {
+          extractorHelper.onFinished(data);
+          notifications.update({
+            id,
+            color: 'teal',
+            title: 'Finished Extraction',
+            message: `Total Video Info: ${data && data?.length ? data.length : 0}`,
+            icon: <IconCheck style={{ width: rem(18), height: rem(18) }} />,
+            loading: false,
+            autoClose: 5000,
+          });
+        }
         extractor.onError = function(err){
+          notifications.update({
+            id,
+            color: 'red',
+            title: 'Error Extraction',
+            message: `Oops... Something went wrong`,
+            icon: <IconX style={{ width: rem(18), height: rem(18) }} />,
+            loading: false,
+            autoClose: 5000,
+          });
           logger?.log("error extraction", err)
           if(err?.status === 429){
             openError();
+          } else if(isDesktopApp && (err?.response?.data as any)?.error === "Invalid Machine ID"){
+            openModalManager({
+              title: "Invalid Machine ID",
+              propsTitle: { c: "red" },
+              children: function(){
+                return (
+                  <Flex className='space-y-4 px-4 py-8' align="center" justify="center" direction={'column'} mih={240} >
+                    <div>
+                      <Text fz={'sm'} ta="center">
+                        Your account cannot use with this computer.<br/>
+                        If you want to change, please contact our supporter or<br/>
+                        click button below to contact us on Telegram
+                      </Text>
+                    </div>
+                    <Flex justify={'center'}>
+                      <Button variant='filled'
+                        onClick={()=>{
+                          openExternal({url: window.mainAssets?.publish$link?.telegram?.channel})
+                        }}
+                      >Contact Us</Button>
+                    </Flex>
+                  </Flex>
+                )
+              }(),
+            })
+          } else if(err && err.status === 200 && err.message.includes('Something wrong')){
+            openModalManager({
+              title: "Oops... Something went wrong",
+              propsTitle: { c: "red" },
+              children: function(){
+                return (
+                  <Flex className='space-y-4 px-4 py-8' align="center" justify="center" direction={'column'} mih={240} >
+                    <div>
+                      {
+                        window.navigator.onLine ? (
+                          <>
+                            <Text fz={'sm'} ta="center">
+                              Links maybe broken or invalid or require cookie. Please try again.
+                            </Text>
+                            {
+                              !isDesktopApp && (
+                                <Text fz={'sm'} ta="center" mt={16}>
+                                  Or some links are not support on browser. . . Like<br/>
+                                  YouTube, Instagram, Douyin Profile...<br/>
+                                  Please download desktop application for support all these sites.<br/><br/>
+                                  Thank You
+                                </Text>
+                              )
+                            }
+                          </>
+                        ) : (
+                          <Text fz={'lg'} ta="center">
+                            Please check internet connection. . .
+                          </Text>
+                        )
+                      }
+                    </div>
+                    <Flex justify={'center'}>
+                      <Button variant='filled' color='green'
+                        onClick={()=>{
+                          closeModalManager();
+                          setTimeout(()=>{
+                            openModal()
+                          },200)
+                        }}
+                      >Go Back</Button>
+                    </Flex>
+                  </Flex>
+                )
+              }(),
+            })
           }
         }
         const data = await extractor.run()
@@ -112,6 +228,7 @@ export const Dashboard = () => {
         logger?.log('final data', data)
       })();
     }
+
   }, [extracting])
 
   
@@ -212,6 +329,23 @@ export const Dashboard = () => {
                 icon: IconPlayerStop, color: "pink",
                 disabled: !extracting,
                 hidden: window.isMobile,
+                async onClick(){
+                  if(extracting){
+                    notifications.show({
+                      loading: true,
+                      color: 'orange',
+                      title: 'Stop Extracting Video Info',
+                      message: 'Please waiting. . .',
+                      autoClose: false,
+                      withCloseButton: false,
+                    });
+                    ipcRendererInvoke("restart-download-app");
+                    setExtracting(false);
+                    setTimeout(()=>{
+                      setStateHelper({serverIsLive: false})
+                    },1000)
+                  }
+                },
               },
               {
                 label: "Download", tooltip: "ReDownload selected items from the list",
@@ -520,13 +654,18 @@ export const Dashboard = () => {
                   if(!downloadSettings.justExtracting){
                     setIsDownloading(true)
                   }
+                  closeModal();
                 }}
               >{downloadSettings.justExtracting ? 'Extract Info' : 'Download'}</Button>
             </div>
           </Card>
         </Modal>
         <ModalIFrame opened={openedIFrame} onClose={closeIFrame} jwPlayerData={jwPlayerData} />
-        <ModalError opened={openedError} onClose={closeError} />
+        <ModalExpiredError opened={openedError} onClose={closeError} />
+        <ModalManager 
+          onClose={closeModalManager} topRightCloseButton
+          {...stateModalManager}
+        />
         <DataExtractingInfoPage opened={openedDataInfo} onClose={closeDataInfo} 
           onOpenIFrame={(jwPlayerData)=>{
             setJWPlayerData(jwPlayerData)
@@ -1205,23 +1344,103 @@ export function DataExtractingInfoPage({
 
   useEffect(()=>{
     if(props.opened){
-      setTimeout(()=> {
+      setTimeout(async()=> {
         const __dataExtractionSearchProfile = dataExtractionSearchProfile.filter(dt => Boolean(dt.isLastSearchProfile))
         const inputLinkProfile = __dataExtractionSearchProfile.length > 0 ? __dataExtractionSearchProfile[0].info_dict.uploader_url : '';
 
+        let isNoResolution = false;
+        let dataExtraction = simpleData.dataExtraction
+        if(dataExtraction.length > 0){
+          let dataExtractionList = arraySplitting(dataExtraction, 20);
+          let newDataExtractionList = [] as any[][];
+          for await(let dataExtraction of dataExtractionList){
+            const newDataExtraction = await Promise.all(
+              dataExtraction.map(async(dt) => {
+                const info = dt.info_dict
+                if(((!info?.width && !info?.height) || !info?.duration) && info.hd){
+                  await new Promise(async (resolve, reject) => {
+                    try {
+                      var video = document.createElement('video'); 
+                      video.innerHTML = `<source src="${info.hd}" type="video/mp4" />`
+                      video.onloadedmetadata = function(){
+                        if(!isNaN(video.duration)){
+                          var width = video.videoWidth
+                          var height = video.videoHeight
+                          var resolution = `${width}x${height}`
+                          var duration = video.duration
+                          var metadata = {
+                            title: info.title,
+                            width, height, resolution,
+                            duration,
+                            url: info.hd as string
+                          }
+                          logger?.log(metadata)
+                          info.width = width;
+                          info.height = height;
+                          info.resolution = resolution;
+                          info.both = info.both?.length ? info.both.map(v => {
+                            if(v.width === 0){
+                              v = {...v, ...metadata}
+                            }
+                            return v
+                          }) : [metadata]
+                          dt.both = info.both
+                          dt.requested_download = [
+                            {...dt.requested_download?.[0], ...metadata, url: info.original_url as string}
+                          ]
+                          isNoResolution = true;
+                          resolve(metadata);
+                        }
+                      }
+                    } catch (error) {
+                      logger?.log("error metadata", error)
+                      reject(error)
+                    }
+                  })
+                }
+                let dash_manifest_url = info?.dash_manifest_url;
+                if(dash_manifest_url){
+                  let isFetchedDashContent = Boolean(info.fetch_dash_manifest);
+                  if(!isFetchedDashContent){
+                    const dashContent = await fetchDashMPDContent(dash_manifest_url);
+                    if(dashContent){
+                      const {videoOnly, audioOnly} = extractDashMPD(dashContent);
+                      info.video_only = videoOnly
+                      info.audio_only = audioOnly
+                      info.music = audioOnly?.[0]?.url || info.music
+                      info.fetch_dash_manifest = true
+                      isNoResolution = true
+                    }
+                  }
+                }
+                if(info.video_only?.length){
+                  info.video_only = info.video_only.sort((a,b) => a.width - b.width)
+                }
+                let selected = false;
+                return {
+                  ...dt, selected: selected,
+                  progressIdTime: `${dt.progressId}-${dt.createTime}`,
+                }
+              }) 
+            )
+            newDataExtractionList.push(newDataExtraction)
+          }
+          dataExtraction = Array.prototype.concat(...newDataExtractionList)
+        }
         const updateState = {
           inputLinkProfile: inputLinkProfile || '',
           isSearchProfile: !(simpleData.dataExtraction.length > 0),
-          dataExtraction: simpleData.dataExtraction.length > 0 ? simpleData.dataExtraction.map(dt => {
-            let selected = false;
-            return {
-              ...dt, selected: selected,
-              progressIdTime: `${dt.progressId}-${dt.createTime}`,
-            }
-          }) : []
+          dataExtraction: dataExtraction,
         } as Partial<typeof state>;
-        setState(updateState);
-      },50)
+        logger?.log("dataExtraction",dataExtraction)
+        if(isNoResolution){
+          updateSimpleData({dataExtraction})
+          localStorage.setItem("dataExtraction", JSON.stringify(dataExtraction));
+        }
+        setTimeout(()=>{
+          setState(updateState);
+        },10)
+      },40)
     }
 
   },[props.opened])
@@ -1563,11 +1782,14 @@ export function DataExtractingInfoPage({
                         disabled={!dataIsSomeSelected}
                         onClick={(e) => {
                           e.preventDefault();
-                          let dataExtractionUpdate = removeDuplicateObjArray(dataExtraction.filter(dt => !dt.selected), 'progressIdTime');
-                          if(state.isSearchProfile){
-                            const notDataExtractionSearchProfile = state.dataExtraction.filter(dt => !Boolean(dt.isSearchProfile))
-                            dataExtractionUpdate = [...notDataExtractionSearchProfile, ...dataExtractionUpdate]
-                          }
+                          let dataSelected = dataExtraction.filter(dt => dt.selected)
+                          let __dataExtractionUpdate = state.dataExtraction.filter(dt => !dataSelected.map(d=>d.progressIdTime).join('|').includes(dt.progressIdTime))
+
+                          let dataExtractionUpdate = removeDuplicateObjArray(__dataExtractionUpdate, 'progressIdTime');
+                          // if(state.isSearchProfile){
+                          //   const notDataExtractionSearchProfile = state.dataExtraction.filter(dt => !Boolean(dt.isSearchProfile))
+                          //   dataExtractionUpdate = [...notDataExtractionSearchProfile, ...dataExtractionUpdate]
+                          // }
                           setState({dataExtraction: dataExtractionUpdate});
                           updateSimpleData({dataExtraction: dataExtractionUpdate});
                           localStorage.setItem("dataExtraction", JSON.stringify(dataExtractionUpdate));
@@ -1668,7 +1890,7 @@ export function DataExtractingInfoPage({
                   }
                   // `/goto/api/v1/img/s?${q_size}&url=${encodeURIComponent(info.thumbnail)}` 
                   let thumbnail = info.thumbnail 
-                    ? `/ct-image?data=${encodeJsonBtoa({url:info.thumbnail, ...size})}` 
+                    ? `/ct-image?data=${encodeJsonBtoa({url:info.thumbnail, ...size, placeholder: true})}` 
                     : placeholder
 
                   return (
@@ -1720,11 +1942,11 @@ export function DataExtractingInfoPage({
                                   />
                                 </div>
                                 <div className='absolute top-1 right-1 z-10' title={info.extractor_key}>
-                                  <Paper shadow='sm' bg={'transparent'} className='cursor-pointer group-hover:block hidden'
+                                  <Paper shadow='sm' className='cursor-pointer group-hover:flex hidden'
                                     title={'Open Link: '.concat(info.original_url as string)}
                                     onClick={async ()=>{
-                                      const isDev = false
-                                      if(isDev){
+                                      const isDevelopment = false
+                                      if(isDevelopment){
                                         // let url = 'https://tikwm.com/video/media/play/7378028350914202886.mp4'
                                         // url = 'http://localhost:5501/v.mp4?url=' + encodeURIComponent(encodeURIComponent('https://v3-dy-o.zjcdn.com/6fd610abc7bd7359d76dfeababa252ca/6694b628/video/tos/cn/tos-cn-ve-15/o0kCQdBmAgCIPk9gLEzifgvAZqfDjF95HC2C8A/?a=6383&ch=0&cr=0&dr=0&cd=0%7C0%7C0%7C0&cv=1&br=2493&bt=2493&cs=0&ds=4&ft=X1nbLcv54QByUxinKCHlxTO5rn_tN0iXCl1WdlMyeF~4&mime_type=video_mp4&qs=0&rc=ZGY0ZGk8Zzw7MzQ2ZTs4O0BpM3FzM3g5cnQ6dDMzNGkzM0AxYDNeYjYuXjIxYi4yMl5eYSNsal9tMmRrcDNgLS1kLS9zcw%3D%3D&btag=c0000e00010000&cc=1f&cquery=100b&dy_q=1721018374&feature_id=46a7bb47b4fd1280f3d3825bf2b29388&l=20240715123934595B18F82CDA1FBD5AC6&req_cdn_type='))
           
@@ -1745,26 +1967,91 @@ export function DataExtractingInfoPage({
                                         
                                         onOpenIFrame?.(jwPlayerData)
                                       } else {
-                                        if(ipcRenderer && info.original_url){
+                                        if(isDesktopApp){
+                                          if(info.original_url)
                                           openExternal({url: info.original_url})
                                         } else {
-                                          window.open(info.original_url)
+                                          if(isDev){
+                                            window.navigator.clipboard.writeText(info.original_url as string)
+                                          } else {
+                                            window.open(info.original_url)
+                                          }
                                         }
                                       }
                                     }}
+                                    style={{
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      backdropFilter: "blur(2)",
+                                      background: "rgb(59 130 246 / 0.3)"
+                                    }}
                                   >
-                                    <Text span unstyled c={'blue'}><IconExternalLink size={20} /></Text>
+                                    <Text span unstyled c={'blue.8'}><IconExternalLink size={20} /></Text>
                                   </Paper>
                                 </div>
                                 <div className='absolute bottom-1 right-1 z-10' title={info.extractor_key}>
-                                  <Paper shadow='sm' bg={'transparent'}>
+                                  <Flex align="center" justify={"center"} gap={4}>
                                     {
-                                      favicon
-                                      ? <img src={favicon} width={20} height={20} />
-                                      : 
-                                      <IconWorld size={20} />
+                                      function(){
+                                        const dataQuality = info.video_only?.length 
+                                          ? info.video_only 
+                                          : (info.both?.length ? info.both : data.both)
+                                        if(!dataQuality || (isArray(dataQuality) && dataQuality.length <= 0)){
+                                          return
+                                        }
+                                        let lsn = dataQuality.length - 1
+                                        let width = Number(dataQuality[lsn].width)
+                                        if(width < info.width){
+                                          width = info.width
+                                        }
+                                        let height = Number(dataQuality[lsn].height)
+                                        if(height < info.height){
+                                          height = info.height
+                                        }
+                                        let size = height < width ? height : width
+                                        let val = `${size}p`
+                                        if(size >= 1440 && size < 2160){
+                                          val = '2K'
+                                        } else if(size >= 2160 && size < 4320){
+                                          val = '4K'
+                                        } else if(size >= 4320){
+                                          val = '8K'
+                                        }
+
+                                        return (
+                                          <Paper shadow='sm' px={2}
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              backdropFilter: "blur(2)",
+                                              color: "gold",
+                                              background: "rgb(59 130 246 / 0.5)",
+                                              fontSize: 14,
+                                              fontWeight: 600,
+                                            }}
+                                          >
+                                            {val}
+                                          </Paper>
+                                        )
+                                      }()
                                     }
-                                  </Paper>
+                                    <Paper shadow='sm'
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        background: "transparent"
+                                      }}
+                                    >
+                                      {
+                                        favicon
+                                        ? <img src={favicon} width={20} height={20} />
+                                        : 
+                                        <IconWorld size={20} />
+                                      }
+                                    </Paper>
+                                  </Flex>
                                 </div>
                                 </>
                               }
@@ -1892,10 +2179,12 @@ export function DataExtractingInfoPage({
   )
 }
 
-interface ModalErrorProps extends Omit<ModalProps, 'children'> {}
-export function ModalError({
+export const ModalManager = ModalComponent
+
+interface ModalExpiredErrorProps extends Omit<ModalProps, 'children'> {}
+export function ModalExpiredError({
   ...props
-}: ModalErrorProps){
+}: ModalExpiredErrorProps){
   const navigate = useNavigate();
 
   return (
@@ -1914,11 +2203,6 @@ export function ModalError({
           Upgrade Your Plan
         </Title>
       </Card>
-      {/* <div className=' absolute top-1 right-1 z-20' title='Close'>
-        <ActionIcon color='red' radius={'100%'} size={20}
-          onClick={props.onClose}
-        ><IconX/></ActionIcon>
-      </div> */}
         <Flex className='space-y-4 px-4 py-8' align="center" justify="center" mih={220} >
           <div>
             <Text fz={'sm'} ta="center">
@@ -1927,8 +2211,6 @@ export function ModalError({
             </Text>
           </div>
         </Flex>
-      {/* <ScrollArea className='grow' h={'calc(100vh - 125px)'}>
-      </ScrollArea> */}
       <Card className='sticky bottom-0 z-10 border-t-[2px] dark:border-t-[1px] dark:border-gray-600'>
         <div className='shadow-sm'></div>
         <div className='flex justify-between'>
@@ -2097,7 +2379,6 @@ export function downloadXMLHttpRequest({
   let averageSpeedBytes = 0;
   let averageSpeedCount = 0;
 
-  let isFirst = true;
 
   request.addEventListener("progress", function (e) {
     if (e.lengthComputable) {
@@ -2403,23 +2684,10 @@ class DownloadEngine extends DownloadBaseIE {
       isHighResolution = false
     }
 
-    // if(linkDL) return {} // for testing
 
-    if(linkDL.includes("www.douyin.com/aweme/v1/")){
-      linkDL = `https://www.tikwm.com/video/media/play/${video_info.id}.mp4`
+    if(video_info.extractor_key?.toLowerCase() === 'tiktok' && !linkDL.startsWith('http')){
+      linkDL = `https://tikwm.com/video/media/play/${video_info.id}.mp4`
     }
-
-    // if(linkDL && ["tikwm.com"].some(v => linkDL.includes(v)) ){
-    //   const res = await ipcRendererInvoke("get-data-from-backend", "/data_redirect_url", {
-    //     method: "POST", body: JSON.stringify({
-    //       url: linkDL,
-    //     })
-    //   })
-    //   logger("response", res)
-    //   if(res.status === 200){
-    //     linkDL = res.data.url
-    //   }
-    // }
 
     let options = {
       isYouTube, isDefaultLink, isHighResolution
@@ -2440,44 +2708,21 @@ class DownloadEngine extends DownloadBaseIE {
         let musicLink = video_info.music
         let dash_manifest_url = video_info.dash_manifest_url
         if(!musicLink && dash_manifest_url){
-          const obj = {
-            url: dash_manifest_url,
-            responseType: "text",
-            options: {
-              headers: {
-                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-                "accept-language": "en-US,en;q=0.9",
-                "cache-control": "max-age=0",
-                "dpr": "1",
-                "priority": "u=0, i",
-                "sec-ch-prefers-color-scheme": "dark",
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-model": "\"\"",
-                "sec-ch-ua-platform": "\"Windows\"",
-                "sec-ch-ua-platform-version": "\"10.0.0\"",
-                "sec-fetch-dest": "document",
-                "sec-fetch-mode": "navigate",
-                "sec-fetch-site": "cross-site",
-                "sec-fetch-user": "?1",
-                "upgrade-insecure-requests": "1",
-                "viewport-width": "672",
-              }
-            }
-          }
-          const data = await axios.get('/api/v1/request?data='+encodeJsonBtoa(obj)).then(dt=> dt.data).catch(()=> null)
-          if(isObject(data) && data.data){
-            const {videoOnly, audioOnly} = extractDashMPD(data.data)
-            logger?.log("data",data)
-            logger?.log("videoOnly",videoOnly)
-            logger?.log("audioOnly",audioOnly)
-            linkDL = audioOnly?.[0]
+          const dashContent = await fetchDashMPDContent(dash_manifest_url);
+          if(dashContent){
+            const { audioOnly } = extractDashMPD(dashContent)
+            linkDL = audioOnly?.[0]?.url
           }
         } else {
           linkDL = musicLink || ""
         }
+        if(video_info.extractor_key?.toLowerCase() === 'tiktok' && !linkDL.startsWith('http')){
+          linkDL = `https://tikwm.com/video/music/${video_info.id}.mp3`
+        }
         if(!linkDL){
           this.onError?.({error: "No music link", url: video_info.original_url as string})
         }
+        logger?.log("download music", linkDL)
         dataAudioDL = await this.aioTubeDownloader(linkDL, info_dict, download_folder, filenameObj.filename)
       }
       dataDownloadingObj = dataAudioDL.dataDownloadingObj
@@ -2629,7 +2874,7 @@ class DownloadEngine extends DownloadBaseIE {
       }
     }
 
-    if(isCompleted){
+    if(isCompleted || dataDownloadingObj?.[`progressBar-${progressIdTime}`]?.progress >= 100){
       if(this.licenseExpired){
         let limitDownloadExpiredUserLocal = localStorage.getItem("limitDownloadExpiredUser");
         if(limitDownloadExpiredUserLocal){
@@ -2720,12 +2965,37 @@ class DownloadEngine extends DownloadBaseIE {
       if(this.downloadWithThumbnail){
         // logger("Downloading thumbnail", filenameObj, downloadFolder)
         if(isDesktopApp){
-          await ipcRendererInvoke(
-            "download", video_info.thumbnail + `&download_with_rename_file=${encodeURIComponent(filename)}`,
-            progressId + "-thumbnail", info_dict.createTime, {
-            ...filenameObj,
-            downloadFolder: `${download_folder}\\thumbnail`,
-          })
+          const thumbnailFolder = `${download_folder}\\thumbnail`
+          await ipcRendererInvoke('create-folder', thumbnailFolder, {recursive:true});
+          // await ipcRendererInvoke(
+          //   "download", video_info.thumbnail + `&download_with_rename_file=${encodeURIComponent(filename)}`,
+          //   progressId + "-thumbnail", info_dict.createTime, {
+          //   ...filenameObj,
+          //   downloadFolder: thumbnailFolder,
+          // })
+
+          let oneMB = 1024**2 // 1 Megabyte
+          let downloadOptions = {
+            url: video_info.thumbnail,
+            progressId: progressId + "-thumbnail",
+            timeRange: info_dict.createTime,
+            options: {
+              filename: filename,
+              resolveFilename: progressIdTime,
+              outputFolder: thumbnailFolder,
+              chunkSize: oneMB*10,
+              // downloadEngine: "aioHelper" as "electron" | "iPull" | "aioHelper" | {type: "electron"| "iPull"} | null, // default is "aioHelper" and electron if size smaller than 11MB,
+              iPullOptions: {
+                chunkSize: oneMB*10
+              },
+              // override: false, // default true
+              // delayError: 1500, // default 1000,
+              delayGetFileMetadata: 0.01, // default 1 second,
+              skipRunFileMetadata: true,
+            },
+            // loggerFilePath: "logger.txt", // default
+          }
+          return await ipcRendererInvoke("aioTubeDownloader", downloadOptions);
         } else if(video_info.thumbnail) {
           await new Promise(async (resolve, reject) => {
             downloadXMLHttpRequest({
@@ -2770,6 +3040,8 @@ class DownloadEngine extends DownloadBaseIE {
     }
   ){
     const { simpleData, updateSimpleData, addManyDownloadRecords } = this.useDownloadData;
+    const settings = this.settings
+    const isDownloadAudio = settings.downloadAs === "audio"
     
     const video_info = info_dict.info_dict
     const progressId = info_dict.progressId
@@ -2837,110 +3109,289 @@ class DownloadEngine extends DownloadBaseIE {
         name: string
       }
     }
-    if(isDesktopApp){
-      await new Promise(async (resolve, reject) => {
-        const url = new URL(linkDL)
-        if(!url.search.startsWith('?')){
-          linkDL = linkDL + '?dl=1'
+    const $this = this;
+    function onError(error: any, resolveOrReject?: (data:any)=>void){
+      isError = true
+      const dataTableUpdate = $this.tableData.map(dt => {
+        let data = dt
+        if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
+          dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
+          data = {
+            ...data,
+            completed: 'uncompleted'
+          }
         }
-        let resolvePush = true;
-        let resolveError = true;
-        webContentSend(
-          `progress-${progressIdTime}`,
-          async (downloadMetaData_:any) => {
-            let downloadMetaData = downloadMetaData_ as DownloadMetaData;
-            // logger?.log("Data Downloading: ", downloadMetaData)
-            let dataProgress = downloadMetaData.dataProgress
-            let dataDownloading = dataProgress
-            // logger("Data Downloading: ", dataDownloading)
-            if(resolveCompleted){
-              return;
-            }
-            if(resolvePush && downloadMetaData.fileParts?.length > 0) {
-              resolvePush = false;
-              ipcRendererInvoke("fileParts", downloadMetaData.fileParts);
-            }
-  
-            let downloadProgressBarItems = JSON.parse(localStorage.getItem("downloadProgressBar") as string) as Record<string,any>;
-  
-            const isStopDownload = dataDownloading?.progress < 100 && dataDownloading?.stopDownload === true
-            let previousProgressDownloading = dataDownloadingObj[`progressBar-${progressIdTime}`];
-            const dataUpdate = {
-              ...dataDownloading,
-              progressIdTime,
-              completed: "downloading",
-              download_folder,
-              output_path: download_folder,
-              output_file_path: `${download_folder}\\${filename}.${ext}`,
-              resolveOutputFilepath: `${download_folder}\\${resolveFilename}.${ext}`,
-              filename: filename,
-              isDownloading: isStopDownload ? false : true,
-            }
-            dataDownloadingObj = {
-              ...dataDownloadingObj,
-              ...downloadProgressBarItems,
-              [`progressBar-${progressIdTime}`]: {
-                ...dataDownloadingObj[`progressBar-${progressIdTime}`],
-                ...dataUpdate
-              },
-            };
-            // logger?.log("Data dataDownloadingObj", dataDownloadingObj)
-            if(dataDownloading?.speedBytes <= 0 && previousProgressDownloading){
-              dataDownloadingObj[`progressBar-${progressIdTime}`] = previousProgressDownloading
-            }
-            if(isStopDownload) {
-              dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
+        return data
+      });
+      $this.tableData = dataTableUpdate
+      $this.updateDownloadProgressBar(dataDownloadingObj);
+      $this.onError?.({error, progressIdTime, url: video_info.original_url as string})
+      resolveOrReject?.({error, progressIdTime, url: video_info.url})
+    }
+    
+    try {
+      if(isDesktopApp){
+        await new Promise(async (resolve, reject) => {
+          const url = new URL(linkDL);
+          if(!url.search.startsWith('?')){
+            linkDL = linkDL + '?dl=1'
+          }
+          let resolvePush = true;
+          let resolveError = true;
+          await ipcRendererInvoke('create-folder', download_folder, {recursive:true});
+          webContentSend(
+            `progress-${progressIdTime}`,
+            async (downloadMetaData_:any) => {
+              let downloadMetaData = downloadMetaData_ as DownloadMetaData;
+              // logger?.log("Data Downloading: ", downloadMetaData)
+              let dataProgress = downloadMetaData.dataProgress
+              let dataDownloading = dataProgress
+              // logger("Data Downloading: ", dataDownloading)
+              if(resolveCompleted){
+                return;
+              }
+              if(resolvePush && downloadMetaData.fileParts?.length > 0) {
+                resolvePush = false;
+                ipcRendererInvoke("fileParts", downloadMetaData.fileParts);
+              }
+    
+              let downloadProgressBarItems = JSON.parse(localStorage.getItem("downloadProgressBar") as string) as Record<string,any>;
+    
+              const isStopDownload = dataDownloading?.progress < 100 && dataDownloading?.stopDownload === true
+              let previousProgressDownloading = dataDownloadingObj[`progressBar-${progressIdTime}`];
+              const dataUpdate = {
+                ...dataDownloading,
+                progressIdTime,
+                completed: "downloading",
+                download_folder,
+                output_path: download_folder,
+                output_file_path: `${download_folder}\\${filename}.${ext}`,
+                resolveOutputFilepath: `${download_folder}\\${resolveFilename}.${ext}`,
+                filename: filename,
+                isDownloading: isStopDownload ? false : true,
+              }
+              dataDownloadingObj = {
+                ...dataDownloadingObj,
+                ...downloadProgressBarItems,
+                [`progressBar-${progressIdTime}`]: {
+                  ...dataDownloadingObj[`progressBar-${progressIdTime}`],
+                  ...dataUpdate
+                },
+              };
+              // logger?.log("Data dataDownloadingObj", dataDownloadingObj)
+              if(dataDownloading?.speedBytes <= 0 && previousProgressDownloading){
+                dataDownloadingObj[`progressBar-${progressIdTime}`] = previousProgressDownloading
+              }
+              if(isStopDownload) {
+                dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
+                this.updateDownloadProgressBar(dataDownloadingObj);
+                return resolve(dataDownloadingObj);
+              } else if(typeof dataDownloading?.stopDownload === 'boolean') {
+                let loggerText = await ipcRendererInvoke("read-file", "logger.txt")
+                logger?.log("text", loggerText)
+                if(typeof loggerText === 'string' && loggerText?.includes(progressIdTime)){
+                  setTimeout(() => {
+                    resolve(dataDownloading)
+                  },2500)
+                }
+              }
+    
+    
+              averageSpeedDownload = dataDownloading.averageSpeedBytes;
+    
+              // localStorage.setItem("downloadProgressBar", JSON.stringify(dataDownloadingObj));
+    
+              const dataTableUpdate = this.tableData.map(dt => {
+                let data = dt
+                if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
+                  data = {
+                    ...data,
+                    ...dataUpdate
+                  }
+                }
+                return data
+              });
+              this.tableData = dataTableUpdate
+    
               this.updateDownloadProgressBar(dataDownloadingObj);
-              return resolve(dataDownloadingObj);
-            } else if(typeof dataDownloading?.stopDownload === 'boolean') {
-              let loggerText = await ipcRendererInvoke("read-file", "logger.txt")
-              logger?.log("text", loggerText)
-              if(typeof loggerText === 'string' && loggerText?.includes(progressIdTime)){
-                setTimeout(() => {
-                  resolve(dataDownloading)
-                },2500)
+    
+    
+              if(dataDownloading.completed){
+                resolveCompleted = true;
               }
             }
-  
-  
-            averageSpeedDownload = dataDownloading.averageSpeedBytes;
-  
-            // localStorage.setItem("downloadProgressBar", JSON.stringify(dataDownloadingObj));
-  
+          )
+    
+          webContentSend(
+            `error-${progressIdTime}`,
+            async (errorDownloadMetaData_) => {
+              let errorDownloadMetaData = errorDownloadMetaData_ as DownloadMetaData;
+              logger?.log("errorDownloadMetaData:", errorDownloadMetaData)
+              // let timer = setTimeout( async () => {
+              //   clearTimeout(timer);
+              //   let removeFileData = await ipcRendererInvoke("remove-files", errorDownloadMetaData.fileParts);
+              //   logger("removeFileData:", removeFileData);
+              // },500)
+              const dataTableUpdate = this.tableData.map(dt => {
+                let data = dt
+                if(Object.keys(dataDownloadingObj).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
+                  dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
+                  data = {
+                    ...data,
+                    completed: 'uncompleted'
+                  }
+                }
+                return data
+              });
+              this.tableData = dataTableUpdate
+              // updateSimpleData({dataExtractionTest: dataTableUpdate})
+              this.updateDownloadProgressBar(dataDownloadingObj);
+            }
+          )
+          // webContentSend(
+          //   `stop-${progressId}`,
+          //   async (stopDataDownload_:any) => {
+          //     const stopDataDownload = stopDataDownload_ as DownloadProgressProps;
+          //     logger("Stop Download: ", stopDataDownload)
+          //     if(stopDataDownload.stopDownload) {
+          //       return resolve(dataDownloadingObj);
+          //     } else {
+          //       let loggerText:string = await ipcRendererInvoke("read-file", "logger.txt")
+          //       // logger("text", loggerText)
+          //       if(loggerText.includes(progressId as string)){
+          //         setTimeout(() => {
+          //           resolve(stopDataDownload)
+          //         },2500)
+          //       }
+          //     }
+          //   }
+          // )
+          webContentSend(
+            `completed-${progressIdTime}`,
+            async (downloadMetaData_:any) => {
+              isCompleted = true;
+              let downloadMetaData = downloadMetaData_ as DownloadMetaData;
+              if(downloadMetaData.fileParse){
+                ext = downloadMetaData.fileParse.ext.replace(/\./g, "")
+              }
+              const completedData = downloadMetaData.dataProgress;
+              // logger?.log("Completed Progress: ", downloadMetaData, "\ndataDownloadingObj", dataDownloadingObj)
+              const resolveOutputFilepath = dataDownloadingObj?.[`progressBar-${progressIdTime}`]?.resolveOutputFilepath
+              if(resolveOutputFilepath){
+                // const newFilename =
+                await ipcRendererInvoke("rename-file", resolveOutputFilepath, filename)
+                // logger("new filename: ", newFilename)
+              }
+              // resolve(dataDownloadingObj);
+            }
+          )
+          logger?.log('linkDL',linkDL)
+          let oneMB = 1024**2 // 1 Megabyte
+          let downloadOptions = {
+            url: linkDL,
+            progressId,
+            timeRange: info_dict.createTime,
+            options: {
+              filename: filename,
+              resolveFilename: resolveFilename,
+              outputFolder: download_folder,
+              chunkSize: oneMB*10,
+              // downloadEngine: "aioHelper" as "electron" | "iPull" | "aioHelper" | {type: "electron"| "iPull"} | null, // default is "aioHelper" and electron if size smaller than 11MB,
+              iPullOptions: {
+                chunkSize: oneMB*10
+              },
+              // override: false, // default true
+              // delayError: 1500, // default 1000,
+              delayGetFileMetadata: 0.3, // default 1 second,
+              addAudio: isYouTube && isHighResolution && video_info.music ? video_info.music : undefined
+            },
+            // loggerFilePath: "logger.txt", // default
+          }
+          return await ipcRendererInvoke("aioTubeDownloader", downloadOptions).then(async (res) => {
+            // logger?.log("Download Response", res)
+            if(res.error){
+              let error = res.error
+              logger?.log("Error downloading", error)
+              isError = true;
+              const dataTableUpdate = this.tableData.map(dt => {
+                let data = dt
+                if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
+                  dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
+                  data = {
+                    ...data,
+                    completed: 'uncompleted'
+                  }
+                }
+                return data
+              });
+              this.tableData = dataTableUpdate
+              // updateSimpleData({dataExtractionTest: dataTableUpdate});
+              this.updateDownloadProgressBar(dataDownloadingObj);
+              resolve({error, progressIdTime, url: video_info.url})
+            } else {
+              isCompleted = true;
+              let downloadMetaData = res as DownloadMetaData;
+              let metadata = downloadMetaData?.dataProgress?.metadata
+              if(metadata){
+                const req_dl = info_dict.requested_download
+                  ? info_dict.requested_download?.map(dlInfo => {
+                    return {
+                      ...dlInfo,
+                      output_path: download_folder,
+                      file_path: outputFilepath,
+                      title: filename
+                    }
+                  }) : [];
+    
+                const infoDLCompleted = {
+                  completed: "completed",
+                  requested_download: req_dl,
+                  output_file_path: outputFilepath,
+                  output_path: download_folder,
+                  justExtracting: false,
+                  isDownloading: false,
+                };
+                let downloadProgressBarItems = JSON.parse(localStorage.getItem("downloadProgressBar") as string);
+                const dataUpdate = {
+                  ...dataDownloadingObj[`progressBar-${progressIdTime}`],
+                  ...downloadMetaData.dataProgress,
+                  metadata,
+                  ...infoDLCompleted,
+                  progressIdTime
+                }
+                dataDownloadingObj = {
+                  ...dataDownloadingObj,
+                  ...downloadProgressBarItems,
+                  [`progressBar-${progressIdTime}`]: dataUpdate
+                }
+                // localStorage.setItem("downloadProgressBar", JSON.stringify(dataDownloadingObj));
+    
+                const dataTableUpdate = this.tableData.map(dt => {
+                  let data = dt
+                  if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
+                    data = {
+                      ...data,
+                      ...dataUpdate,
+                    }
+                  }
+                  return data
+                });
+                this.tableData = dataTableUpdate
+                // this.dataDownloadCompleted.push({...info_dict, ...dataUpdate})
+                
+                // const dataDownloadCompleted = removeDuplicateObjArray([...simpleData.dataDownloadCompleted, ...this.dataDownloadCompleted], 'progressIdTime')
+                // updateSimpleData({dataExtractionTest: dataTableUpdate, dataDownloadCompleted: dataDownloadCompleted})
+                
+                this.updateDownloadProgressBar(dataDownloadingObj);
+              }
+    
+              resolve(metadata)
+            }
+          }).catch((error) => {
+            isError = true
             const dataTableUpdate = this.tableData.map(dt => {
               let data = dt
               if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
-                data = {
-                  ...data,
-                  ...dataUpdate
-                }
-              }
-              return data
-            });
-            this.tableData = dataTableUpdate
-  
-            this.updateDownloadProgressBar(dataDownloadingObj);
-  
-  
-            if(dataDownloading.completed){
-              resolveCompleted = true;
-            }
-          }
-        )
-  
-        webContentSend(
-          `error-${progressIdTime}`,
-          async (errorDownloadMetaData_) => {
-            let errorDownloadMetaData = errorDownloadMetaData_ as DownloadMetaData;
-            logger?.log("errorDownloadMetaData:", errorDownloadMetaData)
-            // let timer = setTimeout( async () => {
-            //   clearTimeout(timer);
-            //   let removeFileData = await ipcRendererInvoke("remove-files", errorDownloadMetaData.fileParts);
-            //   logger("removeFileData:", removeFileData);
-            // },500)
-            const dataTableUpdate = this.tableData.map(dt => {
-              let data = dt
-              if(Object.keys(dataDownloadingObj).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
                 dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
                 data = {
                   ...data,
@@ -2952,191 +3403,16 @@ class DownloadEngine extends DownloadBaseIE {
             this.tableData = dataTableUpdate
             // updateSimpleData({dataExtractionTest: dataTableUpdate})
             this.updateDownloadProgressBar(dataDownloadingObj);
-          }
-        )
-        // webContentSend(
-        //   `stop-${progressId}`,
-        //   async (stopDataDownload_:any) => {
-        //     const stopDataDownload = stopDataDownload_ as DownloadProgressProps;
-        //     logger("Stop Download: ", stopDataDownload)
-        //     if(stopDataDownload.stopDownload) {
-        //       return resolve(dataDownloadingObj);
-        //     } else {
-        //       let loggerText:string = await ipcRendererInvoke("read-file", "logger.txt")
-        //       // logger("text", loggerText)
-        //       if(loggerText.includes(progressId as string)){
-        //         setTimeout(() => {
-        //           resolve(stopDataDownload)
-        //         },2500)
-        //       }
-        //     }
-        //   }
-        // )
-        webContentSend(
-          `completed-${progressIdTime}`,
-          async (downloadMetaData_:any) => {
-            isCompleted = true;
-            let downloadMetaData = downloadMetaData_ as DownloadMetaData;
-            if(downloadMetaData.fileParse){
-              ext = downloadMetaData.fileParse.ext.replace(/\./g, "")
-            }
-            const completedData = downloadMetaData.dataProgress;
-            // logger?.log("Completed Progress: ", downloadMetaData, "\ndataDownloadingObj", dataDownloadingObj)
-            const resolveOutputFilepath = dataDownloadingObj?.[`progressBar-${progressIdTime}`]?.resolveOutputFilepath
-            if(resolveOutputFilepath){
-              // const newFilename =
-              await ipcRendererInvoke("rename-file", resolveOutputFilepath, filename)
-              // logger("new filename: ", newFilename)
-            }
-            // resolve(dataDownloadingObj);
-          }
-        )
-        logger?.log('linkDL',linkDL)
-        let oneMB = 1024**2 // 1 Megabyte
-        let downloadOptions = {
-          url: linkDL,
-          progressId,
-          timeRange: info_dict.createTime,
-          options: {
-            filename: filename,
-            resolveFilename: resolveFilename,
-            outputFolder: download_folder,
-            chunkSize: oneMB*10,
-            downloadEngine: "aioHelper" as "electron" | "iPull" | "aioHelper" | {type: "electron"| "iPull"} | null, // default is "aioHelper" and electron if size smaller than 11MB,
-            iPullOptions: {
-              chunkSize: oneMB*10
-            },
-            // override: false, // default true
-            // delayError: 1500, // default 1000,
-            delayGetFileMetadata: 0.3, // default 1 second,
-            addAudio: isYouTube && isHighResolution && video_info.music ? video_info.music : undefined
-          },
-          // loggerFilePath: "logger.txt", // default
-        }
-        return await ipcRendererInvoke("aioTubeDownloader", downloadOptions).then(async (res) => {
-          // logger?.log("Download Response", res)
-          if(res.error){
-            let error = res.error
-            logger?.log("Error downloading", error)
-            isError = true;
-            const dataTableUpdate = this.tableData.map(dt => {
-              let data = dt
-              if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
-                dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
-                data = {
-                  ...data,
-                  completed: 'uncompleted'
-                }
-              }
-              return data
-            });
-            this.tableData = dataTableUpdate
-            // updateSimpleData({dataExtractionTest: dataTableUpdate});
-            this.updateDownloadProgressBar(dataDownloadingObj);
-            resolve({error, progressIdTime, url: video_info.url})
-          } else {
-            isCompleted = true;
-            let downloadMetaData = res as DownloadMetaData;
-            let metadata = downloadMetaData?.dataProgress?.metadata
-            if(metadata){
-              const req_dl = info_dict.requested_download
-                ? info_dict.requested_download?.map(dlInfo => {
-                  return {
-                    ...dlInfo,
-                    output_path: download_folder,
-                    file_path: outputFilepath,
-                    title: filename
-                  }
-                }) : [];
-  
-              const infoDLCompleted = {
-                completed: "completed",
-                requested_download: req_dl,
-                output_file_path: outputFilepath,
-                output_path: download_folder,
-                justExtracting: false,
-                isDownloading: false,
-              };
-              let downloadProgressBarItems = JSON.parse(localStorage.getItem("downloadProgressBar") as string);
-              const dataUpdate = {
-                ...dataDownloadingObj[`progressBar-${progressIdTime}`],
-                ...downloadMetaData.dataProgress,
-                metadata,
-                ...infoDLCompleted,
-                progressIdTime
-              }
-              dataDownloadingObj = {
-                ...dataDownloadingObj,
-                ...downloadProgressBarItems,
-                [`progressBar-${progressIdTime}`]: dataUpdate
-              }
-              // localStorage.setItem("downloadProgressBar", JSON.stringify(dataDownloadingObj));
-  
-              const dataTableUpdate = this.tableData.map(dt => {
-                let data = dt
-                if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
-                  data = {
-                    ...data,
-                    ...dataUpdate,
-                  }
-                }
-                return data
-              });
-              this.tableData = dataTableUpdate
-              // this.dataDownloadCompleted.push({...info_dict, ...dataUpdate})
-              
-              // const dataDownloadCompleted = removeDuplicateObjArray([...simpleData.dataDownloadCompleted, ...this.dataDownloadCompleted], 'progressIdTime')
-              // updateSimpleData({dataExtractionTest: dataTableUpdate, dataDownloadCompleted: dataDownloadCompleted})
-              
-              this.updateDownloadProgressBar(dataDownloadingObj);
-            }
-  
-            resolve(metadata)
-          }
-        }).catch((error) => {
-          isError = true
-          const dataTableUpdate = this.tableData.map(dt => {
-            let data = dt
-            if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
-              dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
-              data = {
-                ...data,
-                completed: 'uncompleted'
-              }
-            }
-            return data
-          });
-          this.tableData = dataTableUpdate
-          // updateSimpleData({dataExtractionTest: dataTableUpdate})
-          this.updateDownloadProgressBar(dataDownloadingObj);
-          reject({error, progressIdTime, url: video_info.url})}
-        );
-      });
-    } else {
-      const $this = this;
-      function onError(error: any, resolveOrReject: (data:any)=>void){
-        isError = true
-        const dataTableUpdate = $this.tableData.map(dt => {
-          let data = dt
-          if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
-            dataDownloadingObj[`progressBar-${progressIdTime}`].completed = 'uncompleted'
-            data = {
-              ...data,
-              completed: 'uncompleted'
-            }
-          }
-          return data
+            reject({error, progressIdTime, url: video_info.url})}
+          );
         });
-        $this.tableData = dataTableUpdate
-        $this.updateDownloadProgressBar(dataDownloadingObj);
-        $this.onError?.({error: "No music link", progressIdTime, url: video_info.original_url as string})
-        resolveOrReject({error, progressIdTime, url: video_info.url})
-      }
-
-      if(!isDesktopApp){
+      } else if(!isDesktopApp){
         // linkDL = '/download.php?url='+encodeURIComponent(linkDL) + '&redirect=true';
+        if(video_info.extractor_key?.toLowerCase() === 'tiktok' && linkDL.includes('.tiktokcdn.') && !isDownloadAudio){
+          linkDL = `https://tikwm.com/video/media/play/${video_info.id}.mp4`
+        }
         linkDL = '/download.php?data='+encodeJsonBtoa({url:linkDL, redirect: true});
-
+        
         await new Promise(async (resolve, reject) => {
           downloadXMLHttpRequest({
             url: linkDL,
@@ -3215,7 +3491,7 @@ class DownloadEngine extends DownloadBaseIE {
                 $this.updateDownloadProgressBar(dataDownloadingObj);
       
       
-                if(dataDownloading?.progress >= 100){
+                if(dataDownloading?.progress >= 100 && !isCompleted){
                   isCompleted = true;
                   var video = document.createElement('video');
                   var mimeType = dataProgress.mimeType
@@ -3240,12 +3516,22 @@ class DownloadEngine extends DownloadBaseIE {
                         resolution: `${width}x${height}`,
                         duration, bitrate,
                       }
-                      dataDownloadingObj[`progressBar-${progressIdTime}`].metadata = metadata;
+                      let downloadProgressBarItems = JSON.parse(localStorage.getItem("downloadProgressBar") as string) as Record<string,any>;
+                      dataDownloadingObj = {
+                        ...dataDownloadingObj,
+                        ...downloadProgressBarItems,
+                        [`progressBar-${progressIdTime}`]: {
+                          ...dataDownloadingObj[`progressBar-${progressIdTime}`],
+                          metadata: metadata
+                        },
+                      };
                     } catch (error) {
                       logger?.log("error metadata", error)
                     }
                     $this.updateDownloadProgressBar(dataDownloadingObj);
-                    resolve(dataDownloadingObj)
+                    setTimeout(()=>{
+                      resolve(dataDownloadingObj)
+                    }, 1000)
                   }
                 }
               } catch (error) {
@@ -3254,84 +3540,87 @@ class DownloadEngine extends DownloadBaseIE {
             },
           })
         });
-      } 
-      // function simpleLoad() {
-      //   await sleep(1)
-      //   linkDL = '/download.php?url='+encodeURIComponent(linkDL) + '&title=' + encodeURIComponent(filename);
         
-      //   isCompleted = true;
-      //   let downloadMetaData = {
-      //     dataProgress: {
-      //       progress: 100,
-      //       percentage: 100,
-      //       percentageString: '100',
-      //       totalBytes: 0,
-      //       total: '',
-      //       downloadedBytes: 0,
-      //       downloaded:'',
-      //       speedBytes: 0,
-      //       speed:'',
-      //       averageSpeedBytes: 0,
-      //       averageSpeed:'',
-      //       timeLeftSeconds: 0,
-      //       timeLeftFormat: '',
-      //       metadata: undefined,
-      //     },
-      //   };
-      //   let metadata = downloadMetaData?.dataProgress?.metadata
+        // function simpleLoad() {
+        //   await sleep(1)
+        //   linkDL = '/download.php?url='+encodeURIComponent(linkDL) + '&title=' + encodeURIComponent(filename);
+          
+        //   isCompleted = true;
+        //   let downloadMetaData = {
+        //     dataProgress: {
+        //       progress: 100,
+        //       percentage: 100,
+        //       percentageString: '100',
+        //       totalBytes: 0,
+        //       total: '',
+        //       downloadedBytes: 0,
+        //       downloaded:'',
+        //       speedBytes: 0,
+        //       speed:'',
+        //       averageSpeedBytes: 0,
+        //       averageSpeed:'',
+        //       timeLeftSeconds: 0,
+        //       timeLeftFormat: '',
+        //       metadata: undefined,
+        //     },
+        //   };
+        //   let metadata = downloadMetaData?.dataProgress?.metadata
+        
+        //   const req_dl = info_dict.requested_download
+        //     ? info_dict.requested_download?.map(dlInfo => {
+        //       return {
+        //         ...dlInfo,
+        //         output_path: download_folder,
+        //         file_path: outputFilepath,
+        //         title: filename
+        //       }
+        //     }) : [];
       
-      //   const req_dl = info_dict.requested_download
-      //     ? info_dict.requested_download?.map(dlInfo => {
-      //       return {
-      //         ...dlInfo,
-      //         output_path: download_folder,
-      //         file_path: outputFilepath,
-      //         title: filename
-      //       }
-      //     }) : [];
-    
-      //   const infoDLCompleted = {
-      //     completed: "completed",
-      //     requested_download: req_dl,
-      //     output_file_path: outputFilepath,
-      //     output_path: download_folder,
-      //     justExtracting: false,
-      //     isDownloading: false,
-      //     linkDL,
-      //   };
-      //   let downloadProgressBarItems = JSON.parse(localStorage.getItem("downloadProgressBar") as string);
-      //   const dataUpdate = {
-      //     ...dataDownloadingObj[`progressBar-${progressIdTime}`],
-      //     ...downloadMetaData.dataProgress,
-      //     metadata,
-      //     ...infoDLCompleted,
-      //     progressIdTime
-      //   }
-      //   dataDownloadingObj = {
-      //     ...dataDownloadingObj,
-      //     ...downloadProgressBarItems,
-      //     [`progressBar-${progressIdTime}`]: dataUpdate
-      //   }
-      //   // localStorage.setItem("downloadProgressBar", JSON.stringify(dataDownloadingObj));
-    
-      //   const dataTableUpdate = this.tableData.map(dt => {
-      //     let data = dt
-      //     if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
-      //       data = {
-      //         ...data,
-      //         ...dataUpdate,
-      //       }
-      //     }
-      //     return data
-      //   });
-      //   this.tableData = dataTableUpdate
-      //   // this.dataDownloadCompleted.push({...info_dict, ...dataUpdate})
-        
-      //   // const dataDownloadCompleted = removeDuplicateObjArray([...simpleData.dataDownloadCompleted, ...this.dataDownloadCompleted], 'progressIdTime')
-      //   // updateSimpleData({dataExtractionTest: dataTableUpdate, dataDownloadCompleted: dataDownloadCompleted})
-        
-      //   this.updateDownloadProgressBar(dataDownloadingObj);
-      // }
+        //   const infoDLCompleted = {
+        //     completed: "completed",
+        //     requested_download: req_dl,
+        //     output_file_path: outputFilepath,
+        //     output_path: download_folder,
+        //     justExtracting: false,
+        //     isDownloading: false,
+        //     linkDL,
+        //   };
+        //   let downloadProgressBarItems = JSON.parse(localStorage.getItem("downloadProgressBar") as string);
+        //   const dataUpdate = {
+        //     ...dataDownloadingObj[`progressBar-${progressIdTime}`],
+        //     ...downloadMetaData.dataProgress,
+        //     metadata,
+        //     ...infoDLCompleted,
+        //     progressIdTime
+        //   }
+        //   dataDownloadingObj = {
+        //     ...dataDownloadingObj,
+        //     ...downloadProgressBarItems,
+        //     [`progressBar-${progressIdTime}`]: dataUpdate
+        //   }
+        //   // localStorage.setItem("downloadProgressBar", JSON.stringify(dataDownloadingObj));
+      
+        //   const dataTableUpdate = this.tableData.map(dt => {
+        //     let data = dt
+        //     if(Object.keys(dataDownloadingObj).filter(v => v.includes(progressIdTime)).some(key => key.includes(`${dt.progressId}-${dt.createTime}`))){
+        //       data = {
+        //         ...data,
+        //         ...dataUpdate,
+        //       }
+        //     }
+        //     return data
+        //   });
+        //   this.tableData = dataTableUpdate
+        //   // this.dataDownloadCompleted.push({...info_dict, ...dataUpdate})
+          
+        //   // const dataDownloadCompleted = removeDuplicateObjArray([...simpleData.dataDownloadCompleted, ...this.dataDownloadCompleted], 'progressIdTime')
+        //   // updateSimpleData({dataExtractionTest: dataTableUpdate, dataDownloadCompleted: dataDownloadCompleted})
+          
+        //   this.updateDownloadProgressBar(dataDownloadingObj);
+        // }
+      }
+    } catch (error) {
+      onError(error)
     }
 
 
@@ -4166,7 +4455,7 @@ class DownloadEngine extends DownloadBaseIE {
             function getTinyMetadata(filePath:string){
               const info = {
                 title: "",
-                ext: "mp4",
+                ext: "mp3",
                 duration: video_info.duration,
                 fileSize: 0,
                 fileSizeString: "0 Byte",
@@ -4292,7 +4581,8 @@ class DownloadEngine extends DownloadBaseIE {
   }
   async multipleVideos(){
     const dataDownload = [...this.tableData].map(dt => ({...dt, progress: undefined}))
-    const infoDictListOfList = arraySplitting(dataDownload, this.queueDownload)
+    const queueDownload = isDesktopApp ? this.queueDownload : 2
+    const infoDictListOfList = arraySplitting(dataDownload, queueDownload)
     let tableData_ = Array.prototype.concat(...infoDictListOfList) as IYouTube[];
     // let stateHelperObj = {}
     // tableData_.forEach(info => {
@@ -4344,16 +4634,41 @@ const videoLinksByType = {
 
 type VideoLinksByTypeProps = typeof videoLinksByType
 
-interface ExtractorConstructor {
-  downloadSettings: DownloadSettingsType
-  licenseExpired?: boolean
+export async function fetchDashMPDContent(dash_manifest_url:string) {
+  const obj = {
+    url: dash_manifest_url,
+    responseType: "text",
+    options: {
+      headers: {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "max-age=0",
+        "dpr": "1",
+        "priority": "u=0, i",
+        "sec-ch-prefers-color-scheme": "dark",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-platform": "\"Windows\"",
+        "sec-ch-ua-platform-version": "\"10.0.0\"",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "cross-site",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1",
+        "viewport-width": "672",
+      }
+    }
+  }
+  const data = await axios.get('/api/v1/request?data='+encodeJsonBtoa(obj)).then(dt=> dt.data).catch(()=> null)
+
+  return (isObject(data) && data.data ? data.data : null) as string|null
 }
 
 export function extractDashMPD(dashContent:string) {
   const AdaptationSet = $(dashContent).find('AdaptationSet');
 
-  const videoOnly = [] as any[];
-  const audioOnly = [] as any[];
+  let videoOnly = [] as any[];
+  let audioOnly = [] as any[];
 
   const RepresentationAttrName = ['id', 'bandwidth', 'codecs', 'mimeType', 'FBContentLength', 'width', 'height', 'FBQualityClass'];
   AdaptationSet.each(function () {
@@ -4380,6 +4695,8 @@ export function extractDashMPD(dashContent:string) {
           info['ext'] = 'mp4';
           if (info.width && info.height) {
             info['resolution'] = `${info.width}x${info.height}`
+            info.width = Number(info.width)
+            info.height = Number(info.height)
           }
           videoOnly.push(info);
         } else {
@@ -4390,11 +4707,17 @@ export function extractDashMPD(dashContent:string) {
       })
     }
   })
+  videoOnly = videoOnly.sort((a,b) => Number(a.height) - Number(b.height))
 
   return {audioOnly, videoOnly}
 }
 
-class Extractor {
+interface ExtractorConstructor {
+  downloadSettings: DownloadSettingsType
+  licenseExpired?: boolean
+}
+
+export class Extractor {
   isDev = false;
   tableData = [] as IYouTube[];
   errorData = [] as Record<string, any>[];
@@ -4405,6 +4728,8 @@ class Extractor {
   }
   use_custom_cpu_if_available_more_then_12 = false;
   server_host = isDev ? isDevServerHost : ""
+  isPublic = false
+  customInputLinks = ''
 
   acceptLinks = ["youtube.com","youtu.be","facebook.com","instagram.com","tiktok.com","douyin.com","kuaishou.com"]
   defaultLinks = [] as string[];
@@ -4414,6 +4739,7 @@ class Extractor {
   tiktokLinks = [] as string[];
   douyinLinks = [] as string[];
   kuaishouLinks = [] as string[];
+  genericLinks = [] as string[];
   videoLinksByType = videoLinksByType;
 
   inputSearchProfileLink = null as string | null;
@@ -4692,6 +5018,54 @@ class Extractor {
 
     return videoLinksByType
   }
+  async preGetVideoLinks(textLinks:string){
+    let videoLinks = textLinks.split('\n');
+    const genericLinks = videoLinks.filter((link) => {
+      const _ = link.split("?")[0].split(".")
+      const ext = _[_.length - 1]
+      link = (link.includes('?') ? link : link + '&') + 'is_generic=true'
+      return !( ext.length <= 2 || ext.length > 4) && link;
+    })
+    
+    const hostRedirectPattern = "vt.tiktok.com|v.douyin.com|v.kuaishou.com";
+    const redirectLinks = videoLinks.filter(link => hostRedirectPattern.includes(new URL(link).host.toLowerCase()));
+    if(redirectLinks.length > 0){
+      videoLinks = videoLinks.filter(link => !(hostRedirectPattern.includes(new URL(link).host.toLowerCase())));
+      let __videoRedirectLinksOfLinks = arraySplitting(redirectLinks, 50);
+      let videoRedirectLinksOfLinks = [] as string[][];
+      for await (let __vdoLinks of __videoRedirectLinksOfLinks){
+        const videoRedirectLinks = await Promise.all(
+          redirectLinks.map(async(link)=>{
+            let url = link;
+            try {
+              const r = await fetch('/api/v1/request?data='+encodeJsonBtoa({url:link, useData: "no"}));
+              const data = await r.json();
+              if(data && data.url){
+                url = data.url
+              }
+            } catch {}
+            return url
+          })
+        )
+        videoRedirectLinksOfLinks.push(videoRedirectLinks)
+      }
+      videoLinks = Array.prototype.concat(...videoRedirectLinksOfLinks)
+    }
+    const [video_list, isProfile] = fixOneProfile(videoLinks)
+    if(!this.isPublic){
+      logger?.log(video_list, isProfile, genericLinks, videoLinks)
+    }
+
+    const ytPlaylistId = videoLinks.map((youtubeLink) => getYouTubeID(youtubeLink.trim(), "list")).filter(v => typeof v === "string") as string[]
+    const yt_playlist = ytPlaylistId.map(id => `https://www.youtube.com/playlist?list=${id}`)
+    const hasYTPlaylist = textLinks.includes("youtube.com/playlist?list=");
+
+    return {
+      videoLinks, genericLinks, 
+      videoProfileLinks: video_list, isProfile,
+      videoYouTubePlaylistLinks: yt_playlist, ytPlaylistId, hasYTPlaylist
+    }
+  }
   async getVideoLinks(){
     const settings = this.settings
     const licenseExpired = this.licenseExpired
@@ -4718,24 +5092,23 @@ class Extractor {
     this.isDownloadSelection = isDownloadSelection
     // logger("[inputVideoLinks]: ", inputVideoLinks?.split('\n').map(link => decodeURIComponent(link)))
 
+    if(this.isPublic && this.customInputLinks){
+      inputVideoLinks = this.customInputLinks.trim();
+    }
     var videoLinks = [] as string[];
     if(inputVideoLinks && inputVideoLinks.startsWith('http')){
       let textLinks = inputVideoLinks as string;
-      if(licenseExpired){
+      if(licenseExpired || (this.isPublic && this.customInputLinks)){
         textLinks = textLinks.split('\n')[0]
       }
-      videoLinks = textLinks.split('\n')
-      const genericLinks = videoLinks.filter((link) => {
-        const _ = link.split("?")[0].split(".")
-        const ext = _[_.length - 1]
-        return !( ext.length <= 2 || ext.length > 4) && link;
-      })
-      const [video_list, isProfile] = fixOneProfile(videoLinks)
-      // logger(video_list, isProfile, genericLinks, videoLinks)
 
-      const ytPlaylistId = videoLinks.map((youtubeLink) => getYouTubeID(youtubeLink.trim(), "list")).filter(v => typeof v === "string") as string[]
-      const yt_playlist = ytPlaylistId.map(id => `https://www.youtube.com/playlist?list=${id}`)
-      const isYTPlaylist = textLinks.includes("youtube.com/playlist?list=")
+      const dataVideoLinks = await this.preGetVideoLinks(textLinks)
+      videoLinks = dataVideoLinks.videoLinks
+      const { 
+        genericLinks, isProfile, videoProfileLinks,
+        hasYTPlaylist: isYTPlaylist, videoYouTubePlaylistLinks: yt_playlist
+      } = dataVideoLinks
+
 
       this.isProfile = isProfile
       this.isYTPlaylist = isYTPlaylist
@@ -4761,6 +5134,7 @@ class Extractor {
         // logger("[downloadSelection]: ", videoLinks)
       }
       else if(genericLinks.length > 0){
+        this.genericLinks = genericLinks;
         const fixLinks = finalValidLinks(textLinks)
         videoLinks = [...new Set([...genericLinks, ...fixLinks.videoLinks])]
         // logger("[genericLinks]: ", videoLinks)
@@ -4768,7 +5142,7 @@ class Extractor {
       else if(isProfile || isYTPlaylist){
         let profile_url_list = [] as string[];
         if(isProfile){
-          const fixLinks = finalValidLinks(video_list.join("\n"))
+          const fixLinks = finalValidLinks(videoProfileLinks.join("\n"))
           profile_url_list = fixLinks.videoLinks
         }
 
@@ -4781,20 +5155,39 @@ class Extractor {
             // {kuaishou_is_headless: false, douyin_goto_url: 'https://www.douyin.com/follow', douyin_is_headless: false}
           ) as Record<string, any>),
         } as Record<string, any>
-        if(!isDesktopApp){
-          body = {
-            data: encodeJsonBtoa(body)
+        let hash = generateHash();
+        const data = {
+          server_host: this.server_host,
+          encodeResponse: true,
+          hash,
+          options: {
+            body
+          },
+        }
+        const dataEncoded = encryptionCryptoJs(data)
+        body = {
+          data: dataEncoded
+        }
+        let API_ROUTE = '/aio-dlp/get_videos_profile';
+        if(!this.isPublic){
+          const {isTrialExpired} = isFirstUserTrialExpired()
+          if(!isTrialExpired){
+            API_ROUTE = `/api/task-app/${hash}/info-profile`
           }
         }
         const resExtractVideoList = await axios.post(
-          localhostApi('/aio-dlp/get_videos_profile'), body, defaultHeaders
+          localhostApi(API_ROUTE), body, defaultHeaders
         ).catch(err => {
           this.onError?.(err)
           return err
         }) as AxiosResponse
         logger?.log("[extractVideoList]", resExtractVideoList)
         if(resExtractVideoList.status === 200){
-          videoLinks = resExtractVideoList.data
+          let data = resExtractVideoList.data
+          if(isObject(data) && typeof data.data === 'string'){
+            data = decryptionCryptoJs(data.data)
+          }
+          videoLinks = data
           if(this.extract_only_original_url_from_profile){
             videoLinks = videoLinks.map(link => {
               let url = link
@@ -4813,7 +5206,7 @@ class Extractor {
         this.logger("[videoLinks From Profile]", videoLinks)
         this.loggerTime()
       } else {
-        const fixLinks = finalValidLinks(textLinks)
+        const fixLinks = finalValidLinks(videoLinks)
         videoLinks = [...new Set(fixLinks.videoLinks)]
         this.videoLinksByType = fixLinks.linksByType
         // this.videoLinksByType = this.fixVideoLinksByType(videoLinks)
@@ -4900,8 +5293,18 @@ class Extractor {
             const {videoOnly, audioOnly} = extractDashMPD(video_dash_manifest)
             info.info_dict.video_only = videoOnly;
             info.info_dict.audio_only = audioOnly;
+            info.info_dict.music = audioOnly?.[0]?.url || info.music
           }
         } catch{}
+      }
+      if(!info.both || (isArray(info.both) && info.both.length <= 0)){
+        info.both = [{
+          title: video_info.title,
+          url: video_info.hd as string,
+          width: video_info.width,
+          height: video_info.height,
+          resolution: video_info.resolution,
+        }]
       }
 
       return ({
@@ -4956,6 +5359,40 @@ class Extractor {
       // timeRange: (new Date()).getTime() * (i+1),
     }
   }
+  async extractGenericLinks(genericLinks:string[]){
+    const videoFileLinks = genericLinks.map(link => ({
+      type: link.split('?')[0].split('.').at(-1),
+      url: link
+    }))
+    const formats = await getVideoMetadataByRequest(videoFileLinks);
+    let dataInfoList = [] as IYouTube[]
+    if(formats){
+      dataInfoList = formats.map((f,i) => {
+        const parse = new URL(f.url)
+        const file = parse.pathname.split('/').at(-1)
+        const title = file?.split(f.ext)[0] as string;
+        const url = f.url
+        return {
+          progressId: `generic-${title}-${i}`,
+          url_dl: url,
+          info_dict: {
+            id: `generic-${title}`,
+            title: title,
+            thumbnail: '',
+            duration: 0,
+            formats,
+            extractor_key: 'generic',
+            hd: url,
+            sd: url,
+            original_url: url,
+            webpage_url: url,
+            ...f
+          }
+        }
+      })
+    }
+    return dataInfoList
+  }
   // Extract By CLI
   async extractByCLI(url_list:string[], extract_as?:"profile"|"video"): Promise<IYouTube[] | string[]>{
     const data: any = await new Promise(() => {
@@ -4999,13 +5436,13 @@ class Extractor {
 
   // Extract By API
   async extractByAPI(url_list: string[]){
-    const reqOptions: typeof window.requestInit = {
-      method: "POST",
-      body: JSON.stringify({
-        url_list: url_list,
-        ...(this.videoExtractOptions() as Record<string, any>)
-      })
-    }
+    // const reqOptions: typeof window.requestInit = {
+    //   method: "POST",
+    //   body: JSON.stringify({
+    //     url_list: url_list,
+    //     ...(this.videoExtractOptions() as Record<string, any>)
+    //   })
+    // }
     // let res = await ipcRendererInvoke("get-data-from-backend", "/aio-dlp/multi?url=tcodettool", reqOptions)
     // let data_list = null
     // if(res.status === 200){
@@ -5015,27 +5452,70 @@ class Extractor {
       url_list: url_list,
       ...(this.videoExtractOptions() as Record<string, any>)
     } as any
-    if(!isDesktopApp){
-      body = {
-        data: encodeJsonBtoa(body)
+    let hash = generateHash();
+    const data = {
+      server_host: this.server_host,
+      encodeResponse: true,
+      hash,
+      options: {
+        body
+      },
+    }
+    const dataEncoded = encryptionCryptoJs(data)
+    body = {
+      data: dataEncoded
+    }
+    // else if(!isDesktopApp){
+    //   body = {
+    //     data: encodeJsonBtoa(body)
+    //   }
+    // }
+    let isTooManyRequest = false;
+    let API_ROUTE = this.isPublic ? `/api/task/${hash}/info` 
+    : '/aio-dlp/multi?url=tcodettool'
+
+    if(!this.isPublic){
+      const {isTrialExpired} = isFirstUserTrialExpired()
+      if(!isTrialExpired){
+        API_ROUTE = `/api/task-app/${hash}/info`
       }
     }
+    logger?.log("API_ROUTE",API_ROUTE)
     let data_list = (await axios.post(
       localhostApi(
-        '/aio-dlp/multi?url=tcodettool'
-        // +encodeURIComponent(videoLink)
+        API_ROUTE
       ), body, defaultHeaders
-    ).then(res => res.data)
+    ).then(res => {
+      let data = res.data;
+      if(this.isPublic || data?.data){
+        data = decryptionCryptoJs(data?.data)
+      }
+      logger?.log(data)
+      return data
+    })
     .catch(err => {
-      this.onError?.(err)
+      this.onError?.(err);
+      if(err && err?.status === 429){
+        isTooManyRequest = true;
+      }
       return err
     })) as IYouTube[];
 
     logger?.log("[Data List]: ", data_list, typeof(data_list))
     data_list = typeof data_list === "object" && Array.isArray(data_list) ? data_list : []
-    const info_dict_list = data_list.length > 0
+    let info_dict_list = data_list.length > 0
       ? data_list.filter(info => info?.info_dict && (info.info_dict?.url || info.info_dict?.webpage_url))
       : []
+    
+    if(!isTooManyRequest && data_list.length <= 0){
+      const genericLinks = this.genericLinks
+      if(genericLinks.length){
+        info_dict_list = await this.extractGenericLinks(genericLinks)
+      }
+      if(info_dict_list.length <= 0){
+        this.onError?.({status: 200, message: "Something wrong"} as AxiosError)
+      }
+    }
 
     this.loggerTime()
     return info_dict_list
@@ -5378,11 +5858,15 @@ class Extractor {
       if (videoLinks.length <= 50){
         this.logger("[VideoLinks]: <= 50", videoLinks.length)
         /* Testing 50 Video Links and got 57 seconds */
+        const isKuaishouLinksMT10 = kuaishouLinks && kuaishouLinks.length > 10
         videoLinks = [...youtubeLinks, ...facebookLinks, ...instagramLinks, ...tiktokLinks, ...douyinLinks, ...defaultLinks]
+        if(!isKuaishouLinksMT10){
+          videoLinks = [...videoLinks, ...kuaishouLinks]
+        }
         const defaultInfoList = (await this.defaultVideoExtractor(videoLinks))
         videoInfoList = [...videoInfoList, ...defaultInfoList]
 
-        if(kuaishouLinks && kuaishouLinks.length > 0){
+        if(isKuaishouLinksMT10){
           const kuaishouInfoList = (await this.kuaishouVideoExtractor(kuaishouLinks))
           videoInfoList = [...videoInfoList, ...kuaishouInfoList]
         }
@@ -5468,8 +5952,8 @@ class Extractor {
   }
 }
 
-function finalValidLinks(textLinks:string) {
-  const allLinks = textLinks.split('\n')
+function finalValidLinks(textLinks:string|string[]) {
+  const allLinks = typeof textLinks === 'string' ? textLinks.split('\n') : textLinks
 
   let defaultLinks:string[] = [];
   let youtubeLinks:string[] = [];
@@ -5517,12 +6001,21 @@ function finalValidLinks(textLinks:string) {
     else if(match('\.tiktok\.com') && !isGeneric){
       const videoIdOrProfile = link.split('tiktok.com/')[1]
       url = `https://www.tiktok.com/${videoIdOrProfile}`
+      if(url.includes('/@/')){
+        url = url.replace('/@/','/@tiktok/')
+      }
       tiktokLinks.push(url);
     }
-    else if(match('\.kuaishou\.com') && !isGeneric){
-      if (link.includes('/profile/')) {
-        const userId = link.split('/profile/')[1]
+    else if((match('\.kuaishou\.com') || match('\.chenzhongtech\.com')) && !isGeneric){
+      if (link.includes('/profile/') || link.includes('/fw/user/')) {
+        let userId = link.split(link.includes('/profile/') ? '/profile/' : '/fw/user/')[1];
+        if(link.includes('/fw/user/')){
+          userId = userId.split('?')[0]
+        }
         url = `https://www.kuaishou.com/profile/${userId}`
+      } else if(link.includes('/fw/photo/')) {
+        const videoId = link.split('/fw/photo/')[1].split('?')[0]
+        url = `https://www.kuaishou.com/short-video/${videoId}`
       } else if (link.includes("v.kuaishou.com")) {
         const videoId = link.split('kuaishou.com/')[1]
         url = `https://v.kuaishou.com/${videoId}`
@@ -5534,8 +6027,13 @@ function finalValidLinks(textLinks:string) {
     }
     else if(match('\.douyin\.com') && !isGeneric){
       if (link.includes('/user/') || link.includes("share/user/")) {
-        const userId = link.split('/user/')[1]
+        let userId = link.split('/user/')[1].split('?')[0]
         url = `https://www.douyin.com/user/${userId}`
+      } else if (link.includes("/share/") || link.includes("/note/")) {
+        let path = link.split('?')[0]
+        path = path.endsWith('/') ? path.slice(0,-1) : path
+        let videoId = path.split('/').at(-1)
+        url = `https:/www.douyin.com/video/${videoId}`
       } else if (link.includes("v.douyin.com")) {
         const videoId = link.split('douyin.com/')[1]
         url = `https://v.douyin.com/${videoId}`
@@ -5595,7 +6093,7 @@ function fixOneProfile(videoLinks:string[]): [string[], boolean] {
         isProfile.push(true)
       }
     }
-    else if(match('\.kuaishou\.com/profile/') && !isGeneric){
+    else if((match('\.kuaishou\.com/profile/')||match('\.kuaishou\.com/fw/user/')) && !isGeneric){
       video_list.push(link)
       isProfile.push(true)
     }
@@ -5608,7 +6106,7 @@ function fixOneProfile(videoLinks:string[]): [string[], boolean] {
 }
 
 
-function youtube_validate(url:string): boolean {
+export function youtube_validate(url:string): boolean {
   var regExp = /^(?:https?:\/\/)?(?:www\.)?(youtube\.com|youtu\.be)(?:\S+)?$/;
   var matches = url.match(regExp);
   return matches ? matches.length > 0 : false;

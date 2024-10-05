@@ -77,10 +77,15 @@
     @apply box-border
   }
   body {
-    @apply bg-[var(--web-wash)] text-foreground;
+    @apply bg-[var(--web-wash)] text-foreground md:overflow-y-scroll;
   }
   body {
     overflow: hidden;
+  }
+  @media screen (max-width: 767.99px) {
+    body, body * {
+      overflow-y: auto;
+    }
   }
   body.isDesktopApp #headerDrag, body.isDesktopApp [data-header-drag="true"]{
     -webkit-app-region: drag;

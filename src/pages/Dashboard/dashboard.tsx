@@ -1,5 +1,5 @@
-import { AppShell, Badge, Box, Burger, Card, Divider, Flex, Paper, rem, ScrollArea, Text } from '@mantine/core'
-import { useDisclosure, useLocalStorage } from '@mantine/hooks';
+import { AppShell, Badge, Box, Burger, Button, Card, Divider, Flex, LoadingOverlay, Paper, rem, ScrollArea, Text } from '@mantine/core'
+import { useDisclosure, useLocalStorage, useSetState } from '@mantine/hooks';
 import { MainHeader } from './header';
 import { NavBarMenu } from './NavBarSection';
 import { useEffect, useState } from 'react';
@@ -10,9 +10,15 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AppName, AppVersion } from '@/App/config';
 import { ContextMenu, useContextMenu } from '@/components/ContextMenu';
 import { formatDate } from '@/utils/dateFormat/date-format';
-import { useAuth, useLicenseRecord } from '@/contexts';
+import { useAuth, useDownload, useLicenseRecord } from '@/contexts';
 import { dataProducts } from '../Products/data';
 import { getOneProductFilter } from '../Profile';
+import { openExternal } from '@/App/electron/openExternal';
+import { Notifications } from '@mantine/notifications';
+import { CheckPyServerComponent } from '../main';
+import { isFirstUserTrialExpired } from '../useCheckSession';
+
+
 
 interface DashboardProps {
   children?: React.ReactNode
@@ -25,6 +31,7 @@ interface DashboardProps {
     inner?: string
   }
   scrollAreaProps?: React.ComponentProps<typeof ScrollArea>
+  CustomNavBarMenu?: ({...props}) => React.ReactNode
 }
 
 export const MainDashboard = ({
@@ -32,7 +39,8 @@ export const MainDashboard = ({
   renderAboveContent,
   renderBelowContent,
   classNames,
-  scrollAreaProps
+  scrollAreaProps,
+  CustomNavBarMenu
 }: DashboardProps) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,10 +49,32 @@ export const MainDashboard = ({
   const isNotDashboardPage = !location.pathname.startsWith('/dashboard');
   const isNotAccountPage = !location.pathname.startsWith('/account');
   const isNotProductPage = !location.pathname.startsWith('/products');
+  const isRefreshPage = new URLSearchParams(location.search).get('refresh') === 'true';
   const isDownloadTab = hash === '#download' && !isNotDashboardPage
 
-  const { currentDate } = useAuth();
+  const { currentDate, isLoggedIn, stateHelper } = useAuth();
   const { licenseRecords } = useLicenseRecord();
+  const { refreshDownloadDataRecords } = useDownload();
+
+  const [state, setState] = useSetState({
+    isNewUser: false,
+    isRefreshPage: isRefreshPage,
+  });
+
+  useEffect(() => {
+    setTimeout(()=>{
+      setState({isNewUser: licenseRecords.length <= 0})
+    },2000)
+  }, [location])
+
+  useEffect(() => {
+    setTimeout(()=>{
+      if(isRefreshPage){
+        window.history.replaceState({}, '', location.pathname)
+        setState({isRefreshPage: false})
+      }
+    },2000)
+  }, [])
 
   const [openedNavbar, { toggle: toggleBurger, close: closeNavbar }] = useDisclosure();
   
@@ -66,13 +96,24 @@ export const MainDashboard = ({
       localStorage.removeItem('zoom-factor')
     }
   }, [])
+  useEffect(() => {
+    if(isDesktopApp && location.pathname.startsWith('/refresh')){
+      refreshDownloadDataRecords();
+    }
+  }, [location])
 
   scrollAreaProps = {
     ...scrollAreaProps,
-    className: cn('grow', !isNotProductPage ? 'h-[calc(100vh-0px)]' : isDesktopApp ? 'h-[calc(100vh-100px)]' : 'h-[calc(100vh-96px)]', scrollAreaProps?.className)
+    className: cn('grow', window.isMobile && window.isIOS ? 'h-[calc(100vh-120px)]' : 'h-[calc(100vh-100px)]', scrollAreaProps?.className),
+    // className: cn('grow', !isNotProductPage ? 'h-[calc(100vh-100px)]' : isDesktopApp ? 'h-[calc(100vh-100px)]' : 'h-[calc(100vh-96px)]', scrollAreaProps?.className),
   }
 
+  const DefaultNavBarMenu = CustomNavBarMenu || NavBarMenu
+
+  const {isTrialExpired, expireDays} =  isFirstUserTrialExpired()
   return (
+    <>
+    <Notifications limit={1} className='shadow-xl' {...stateHelper?.notificationsProps} />
     <AppShell
       header={{ height: isDesktopApp ? 50 : 60 }}
       navbar={{
@@ -101,17 +142,18 @@ export const MainDashboard = ({
         style={{
           '--app-shell-navbar-width': rem(260 - 60)
         }} 
-      className={cn('space-y-4 rounded-tr-sm shadow-md', classNames?.nav)} 
-      withBorder={false}
+        className={cn('space-y-4 rounded-tr-sm shadow-md', classNames?.nav)} 
+        withBorder={false}
       >
         <AppShell.Section grow>
-          <NavBarMenu />
+          <DefaultNavBarMenu />
         </AppShell.Section>
         <AppShell.Section>
           <Flex justify={'space-between'} direction={'column'} gap={4} >
             <Box>
               { 
-                licenseRecords.length > 0 && isDesktopApp &&
+                licenseRecords.length > 0 ? 
+                // isDesktopApp &&
                 [...dataProducts].map(item => {
                   const {
                     product, isTrailOrExpired, isPending, isActivated, isExpired, isLifeTime,
@@ -134,12 +176,42 @@ export const MainDashboard = ({
                     </Flex>
                   )
                 })
+                : !isTrialExpired && (
+                  <Card p={8} m={8} bd={'1px dashed orange'}>
+                    <div className='flex items-center justify-center flex-col'>
+                      <Text unstyled ta={'center'} c={'cyan'} fz={'lg'}>{`Trial Version`}</Text>
+                      <Text unstyled ta={'center'} c={'cyan'} fz={'sm'}>{`
+                      ${expireDays} day${expireDays>1?"s":""} trial period`}</Text>
+                      <Button mt={6} color='orange' onClick={()=>{
+                        navigate('/account/products', {replace:true})
+                      }}
+                      >View Product</Button>
+                    </div>
+                  </Card>
+                )
+                // : state.isNewUser && stateHelper.serverIsLive && (
+                //   <Card p={8} m={8} bd={'1px dashed orange'}>
+                //     <div className='flex items-center justify-center flex-col'>
+                //       <Text unstyled ta={'center'} fz={'sm'}>{"You're a new Member?"}</Text>
+                //       <Text unstyled ta={'center'} fz={'sm'}>{"Get 1 day for testing"}</Text>
+                //       <Text unstyled ta={'center'} fz={'sm'}>{"Just drop your username"}</Text>
+                //       <Button mt={6} color='orange' onClick={()=>{
+                //         if(isDesktopApp){
+                //           openExternal({url: window.mainAssets.publish$link.telegram.channel})
+                //         } else {
+                //           window.open('https://t.me/tctt_group')
+                //         }
+                //       }}
+                //       >Goto Telegram</Button>
+                //     </div>
+                //   </Card>
+                // )
               }
             </Box>
             {
               isDesktopApp && 
               <Box>
-                <Flex px={16} justify={'center'} className=' bg-slate-300/10'>
+                <Flex px={16} justify={'center'} className='bg-gray-600/15 dark:bg-slate-300/10'>
                   <Text unstyled span c={'gray'} ff={'monospace'}>{`v2 (${AppVersion})`}</Text>
                 </Flex>
               </Box>
@@ -149,7 +221,20 @@ export const MainDashboard = ({
         <div className='scrollbar-width-5 overflow-y-auto p-0'></div>
       </AppShell.Navbar>
 
-      <AppShell.Main onClick={() => openedNavbar && closeNavbar()}>
+      <AppShell.Main onClick={() => openedNavbar && closeNavbar()} className='relative'>
+      <Box hiddenFrom='sm' className='transition-all'
+        style={{
+          position: "absolute",
+          top: "var(--app-shell-header-offset)",
+          left: "var(--app-shell-navbar-offset)",
+          width: "100%",
+          height: "100%",
+          zIndex: 99,
+          background: "rgb(0 0 0 / 70%)",
+          display: openedNavbar ? "block" : 'none',
+        }}
+      ></Box>
+
         {
           isDesktopApp &&
           <Flex px={16} justify={'center'} opacity={0.7}
@@ -169,17 +254,22 @@ export const MainDashboard = ({
             // h={!isNotProductPage ? 'calc(100vh - 0px)' : isDesktopApp ? 'calc(100vh - 100px)' : 'calc(100vh - 96px)'} 
             {...scrollAreaProps}
           >
-            <div className={cn('dashboard-inner-content space-y-4 *:shadow-md px-4', classNames?.inner)}>
+            <div className={cn('dashboard-inner-content space-y-4 px-4', classNames?.inner, state.isRefreshPage ? "*:shadow-none" : "*:shadow-md")}>
               { children }
             </div>
           </ScrollArea>
         </div>
         { renderBelowContent }
         <ContextMenu showContextMenu={showContextMenu} points={points}/>
-        {/* <LoadingOverlay visible={true} zIndex={1000} overlayProps={{ radius: "sm", blur: 2 }} loaderProps={{ color: 'green', type: 'dots', size: 'xl' }}  /> */}
+        <LoadingOverlay visible={state.isRefreshPage} zIndex={1000} top={"var(--app-shell-header-offset)"}
+          overlayProps={{ radius: "sm", blur: 2 }}
+          loaderProps={{ color: 'green', type: 'dots', size: "xl" }}
+        />
         <div className='hidden'><DigitalClock/></div>
       </AppShell.Main>
     </AppShell>
+    <CheckPyServerComponent />
+    </>
   )
 }
 

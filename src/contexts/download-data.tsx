@@ -5,6 +5,7 @@ import { fetchApi } from "./auth";
 import { electronAppPath } from "@/App/electron/ipc";
 import { removeDuplicateObjArray } from "@/utils";
 import { Table as TanstackTable } from "@tanstack/react-table";
+import { isDev } from "@/api/backend/config";
 
 export const typeDownloadData = ["DEFAULT", "FAST"] as const
 export const downloadPopularSortByData = ["newest", "popular", "oldest"] as const
@@ -47,6 +48,7 @@ declare global {
     addManyDownloadRecords: (newRecords: IYouTube[]) => IYouTube[];
     deleteManyDownloadRecords: (newRecords: IYouTube[]) => IYouTube[];
     updateDownloadRecord: (progressId: string, newRecord: IYouTube) => IYouTube[];
+    refreshDownloadDataRecords: () => void;
 
     simpleData: Prettify<SimpleData>
     updateSimpleData: (dataUpdate: Partial<SimpleData>) => SimpleData
@@ -163,8 +165,8 @@ export const DownloadRecordProvider = ({
   let dataExtractionStorage = localStorage.getItem("dataExtraction");
 	const [simpleData, setSimpleData] = useState<SimpleData>(()=>{
     let dataExtraction: IYouTube[] = dataExtractionStorage ? JSON.parse(dataExtractionStorage) : [];
-    if(dataExtraction.length > 0){
-      dataExtraction = dataExtraction.filter(dt => new Date(dt.createTime as number).toISOString().split('T')[0] >= new Date().toISOString().split('T')[0]);
+    if(!isDev && dataExtraction.length > 0){
+      dataExtraction = dataExtraction.filter(dt => new Date(dt.createTime as number).getTime() >= new Date().getTime());
       localStorage.setItem("dataExtraction", JSON.stringify(dataExtraction));
     }
     return {
@@ -274,39 +276,45 @@ export const DownloadRecordProvider = ({
     }
     if(resolveUseEffectMultiLoad){
       resolveUseEffectMultiLoad = false;
-
-      updateDownloadSettings({cpu: window.navigator.hardwareConcurrency})
-      if(downloadRecords.length > 0){
-        const downloadProgressBarUpdate = {} as DownloadProgressBarType
-        downloadRecords.forEach(dt => {
-          const progressIdTime = `${dt.progressId}-${dt.createTime}`;
-          if(`progressBar-${progressIdTime}` in downloadProgressBar){
-            downloadProgressBarUpdate[`progressBar-${progressIdTime}`] = downloadProgressBar[`progressBar-${progressIdTime}`]
-            if(downloadProgressBar[`progressBar-${progressIdTime}`].completed === 'downloading'){
-              downloadProgressBarUpdate[`progressBar-${progressIdTime}`].completed = 'uncompleted'
-            }
-          }
-        });
-        updateDownloadProgressBar(downloadProgressBarUpdate, {new: true});
-        const downloadProgressBarKeys = Object.keys(downloadProgressBarUpdate);
-        if(downloadProgressBarKeys.length > 0){
-          const allKeyString = downloadProgressBarKeys.join(',')
-          const downloadRecordsUpdate = downloadRecords.filter(dt => allKeyString.includes(dt.progressIdTime)).map(dt => {
-            const progressIdTime = `${dt.progressId}-${dt.createTime}`;
-            if(`progressBar-${progressIdTime}` in downloadProgressBarUpdate){
-              dt.completed = downloadProgressBarUpdate[`progressBar-${progressIdTime}`].completed || dt.completed
-            }
-            return {
-              ...dt
-            }
-          })
-          handleOnChangeRecords(downloadRecordsUpdate)
-        }
-      } else {
-        updateDownloadProgressBar({}, {new: true})
-      }
+      refreshDownloadDataRecords();
     }
   },[]);
+
+  const refreshDownloadDataRecords = () => {
+    updateDownloadSettings({cpu: window.navigator.hardwareConcurrency})
+    if(downloadRecords.length > 0){
+      const downloadProgressBarUpdate = {} as DownloadProgressBarType
+      downloadRecords.forEach(dt => {
+        const progressIdTime = `${dt.progressId}-${dt.createTime}`;
+        if(`progressBar-${progressIdTime}` in downloadProgressBar){
+          downloadProgressBarUpdate[`progressBar-${progressIdTime}`] = downloadProgressBar[`progressBar-${progressIdTime}`]
+          if(downloadProgressBar[`progressBar-${progressIdTime}`].completed === 'downloading'){
+            downloadProgressBarUpdate[`progressBar-${progressIdTime}`].completed = 'uncompleted'
+          }
+          if(downloadProgressBar[`progressBar-${progressIdTime}`]?.progress >= 100){
+            downloadProgressBarUpdate[`progressBar-${progressIdTime}`].completed = 'completed'
+          }
+        }
+      });
+      updateDownloadProgressBar(downloadProgressBarUpdate, {new: true});
+      const downloadProgressBarKeys = Object.keys(downloadProgressBarUpdate);
+      if(downloadProgressBarKeys.length > 0){
+        const allKeyString = downloadProgressBarKeys.join(',')
+        const downloadRecordsUpdate = downloadRecords.filter(dt => allKeyString.includes(dt.progressIdTime)).map(dt => {
+          const progressIdTime = `${dt.progressId}-${dt.createTime}`;
+          if(`progressBar-${progressIdTime}` in downloadProgressBarUpdate){
+            dt.completed = downloadProgressBarUpdate[`progressBar-${progressIdTime}`].completed || dt.completed
+          }
+          return {
+            ...dt
+          }
+        })
+        handleOnChangeRecords(downloadRecordsUpdate)
+      }
+    } else {
+      updateDownloadProgressBar({}, {new: true})
+    }
+  }
 
 	return (
 		<DownloadRecordContext.Provider
@@ -314,7 +322,8 @@ export const DownloadRecordProvider = ({
         downloadRecords, addDownloadRecord, addManyDownloadRecords, deleteManyDownloadRecords, updateDownloadRecord,
         downloadSettings, updateDownloadSettings,
         simpleData, updateSimpleData,
-        downloadProgressBar, updateDownloadProgressBar
+        downloadProgressBar, updateDownloadProgressBar,
+        refreshDownloadDataRecords
       }}
 		>
 			{children}

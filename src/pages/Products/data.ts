@@ -12,10 +12,14 @@ export const dataProducts = [
   //   productId: "MT-0002",
   //   slug: 'mini-editor-tool',
   //   category: 'Media Tools',
-  //   description: "Video Editor software for everyone and best for MMO"
+  //   description: "Video Editor software for everyone and best for MMO",
   //   dashboardTab: '#editor'
   // },
 ] as const;
+
+declare global {
+  type DataProduct = (typeof dataProducts)[number]
+}
 
 export function getNewExpireDate(pricePlan:string){
   const plan = pricePlan.toLowerCase()

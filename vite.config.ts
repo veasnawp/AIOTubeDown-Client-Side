@@ -25,6 +25,10 @@ export default defineConfig({
         target: `http://localhost:${49007+1}`,
         changeOrigin: true,
       },
+      "/assets": {
+        target: `http://localhost:${49007+1}`,
+        changeOrigin: true,
+      },
       "/static": {
         target: `http://localhost:${49007+1}`,
         changeOrigin: true,
@@ -34,6 +38,10 @@ export default defineConfig({
         changeOrigin: true,
       },
       "/download.php": {
+        target: `http://localhost:${49007+1}`,
+        changeOrigin: true,
+      },
+      "/img/payment-qr": {
         target: `http://localhost:${49007+1}`,
         changeOrigin: true,
       },
@@ -49,7 +57,7 @@ export default defineConfig({
         target: `http://localhost:${49007+1}`,
         changeOrigin: true,
       },
-      "/api/v1": {
+      "/api": {
         target: `http://localhost:${49007+1}`,
         changeOrigin: true,
       },

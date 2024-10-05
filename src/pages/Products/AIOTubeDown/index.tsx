@@ -1,4 +1,4 @@
-import { Title, Text, Button, Container, Flex, Box, SimpleGrid, Stack, rem, Paper, useMantineTheme, Badge, alpha, Card, Modal, LoadingOverlay } from '@mantine/core';
+import { Title, Text, Button, Container, Flex, Box, SimpleGrid, Stack, rem, Paper, useMantineTheme, Badge, alpha, Card, Modal, LoadingOverlay, ScrollArea, Group, Avatar, Skeleton, Loader, ThemeIcon } from '@mantine/core';
 import classes from '../HeroText.module.css';
 import { Dots } from '../Dot';
 import { AppName } from '@/App/config';
@@ -10,10 +10,20 @@ import logger from '@/helper/logger';
 import { isDev } from '@/api/backend/config';
 import { useAuth, useLicenseRecord } from '@/contexts';
 import { addDays, dataProducts, getActivationDays, getNewExpireDate } from '../data';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { CopyrightFooter } from '@/pages/Dashboard/dashboard';
+import { avatarUrl } from '@/contexts/auth';
+import { formatDuration } from '@/utils/format';
+import { encodeJsonBtoa } from '@/utils';
 
-type DiscountString = "50percent" | "30percent" | "15percent" | "10percent" | (string & {})
+const headers = {
+  "accept": "application/json",
+  "accept-language": "en-US,en;q=0.9",
+  "content-type": "application/json",
+}
+
+export const discountList = ["50percent", "30percent", "15percent", "10percent"] as const
+export type DiscountString = (typeof discountList)[number] | (string & {})
 
 interface Price {
 	discount: string;
@@ -30,7 +40,7 @@ type DefaultPricePlan = Prettify<{
 type LifetimePricePlan = Omit<DefaultPricePlan, 'promotion'>
 
 
-const dataPricePlanABA = [
+export const dataPricePlanABA = [
   {
     plan: '1 Month',
     price: { discount: '7.95', regular: '14.95' },
@@ -77,7 +87,7 @@ const dataPricePlanABA = [
   },
 ];
 
-const dataPricePlanPlisio = [
+export const dataPricePlanPlisio = [
   {
     plan: '1 Month',
     price: { discount: '7.95', regular: '14.95' },
@@ -124,12 +134,50 @@ const dataPricePlanPlisio = [
   },
 ];
 
+export const dataPricePlan = [
+  {
+    plan: "1 day",
+    price: {discount: "0", regular: "0.85"},
+    linkId: "ABAPAYeY231734K",
+  },
+  {
+    plan: "1 day",
+    price: {discount: "0.25", regular: "0.85"},
+    linkId: "ABAPAYeY231734K",
+  },
+  {
+    plan: "3 days",
+    price: {discount: "1.00", regular: "1.85"},
+    linkId: "ABAPAYeY231734K",
+  },
+  {
+    plan: "7 days",
+    price: {discount: "2.00", regular: "2.75"},
+    linkId: "ABAPAYeY231734K",
+  },
+  ...dataPricePlanABA
+]
+
+export function selectDataPrice(discount?:DiscountString, payWith?:LicenseRecord['paymentMethod']){
+  return (dataPricePlan as DefaultPricePlan[]).map(dt => {
+    let price = dt.price.discount;
+    if(discount && discountList.some(v => v === discount) && dt?.promotion){
+      price = dt.promotion[discount].price
+    }
+    return {
+      plan: dt.plan,
+      price: price,
+      payWith: payWith || "QR Code",
+    }
+  })
+}
+
 const dataPricePlanTesting = {
   plan: "3 day",
   linkId: {
     aba: "ABAPAYeY231734K", plisio: "662bce362f0d539e9108d2f5"
   },
-  price: "$1",
+  price: "1",
 }
 
 const dataPricePlanTesting10c = {
@@ -137,24 +185,32 @@ const dataPricePlanTesting10c = {
   linkId: {
     aba: "ABAPAYMG293530z", plisio: "662bce362f0d539e9108d2f5"
   },
-  price: "$1",
+  price: "0.1",
 }
 
 
 export function AIOTubeDownPage({...other}) {
   const theme = useMantineTheme();
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const dataProduct = dataProducts[0];
+  const location = useLocation();
+  const { user, isLoggedIn } = useAuth();
+  const dataProduct = {...dataProducts[0]};
   const { licenseRecords, addLicenseRecord, updateLicenseRecord } = useLicenseRecord();
   const product = (licenseRecords.filter(dt => dt.productId === dataProduct.productId)?.[0] || {}) as Partial<LicenseRecord>;
 
   const currentPromotion = {
     promotion: {
-      lifeTimePlan: false,
       discount: 15,
+      lifeTimePlan: false,
     }
   };
+  const mainAssets = window?.mainAssets
+  if(isDesktopApp){
+    if(mainAssets && mainAssets?.dev$settings?.promotion){
+      currentPromotion.promotion = mainAssets?.dev$settings?.promotion
+    }
+  }
+  const ABALinkId = mainAssets?.dev$settings?.ABALinkId;
 
   const [openedModal, { open: openModal, close: closeModal }] = useDisclosure(false);
   const [state, setState] = useSetState({
@@ -163,6 +219,8 @@ export function AIOTubeDownPage({...other}) {
     price: '',
     payWith: 'QR Code' as LicenseRecord['paymentMethod'],
     activePayment: false,
+    qrCodeImage: '',
+    loading: false,
   })
   const dataPricePlan = state.payWith === 'QR Code' ? dataPricePlanABA : dataPricePlanPlisio
 
@@ -180,81 +238,109 @@ export function AIOTubeDownPage({...other}) {
   const hasPromotion = typeof promotion.discount === 'number' && [50,30,15,10].some(v => v === promotion.discount)
 
 
-  async function updateLicense(){
-    const pricePlan = state.plan;
-    const currentDate = new Date().toISOString();
-    const newExpireDate = getNewExpireDate(pricePlan);
+  // async function updateLicense(){
+  //   const pricePlan = state.plan;
+  //   const currentDate = new Date().toISOString();
+  //   const newExpireDate = getNewExpireDate(pricePlan);
 
-    if(user._id){
-      if(!product._id){
-        return await addLicenseRecord({
-          userId: user._id,
-          status: 'activated',
-          modifyDateActivated: currentDate,
-          activationDays: getActivationDays(currentDate, newExpireDate),
-          expiresAt: newExpireDate,
-          currentPlan: pricePlan,
-          historyLicenseBough: [`${currentDate}|${newExpireDate}|${state.price}`],
-          toolName: dataProduct.productName,
-          productId: dataProduct.productId,
-          category: dataProduct.category,
-          paymentMethod: state.payWith,
-        })
-      } else {
-        const historyLicenseBough = product.historyLicenseBough || [];
-        return await updateLicenseRecord(product._id, {
-          status: 'activated',
-          modifyDateActivated: currentDate,
-          activationDays: getActivationDays(currentDate, newExpireDate),
-          expiresAt: newExpireDate,
-          currentPlan: pricePlan,
-          historyLicenseBough: [...historyLicenseBough, `${currentDate}|${newExpireDate}|${state.price}`],
-        })
-      }
+  //   if(user._id){
+  //     if(!product._id){
+  //       return await addLicenseRecord({
+  //         userId: user._id,
+  //         status: 'activated',
+  //         modifyDateActivated: currentDate,
+  //         activationDays: getActivationDays(currentDate, newExpireDate),
+  //         expiresAt: newExpireDate,
+  //         currentPlan: pricePlan,
+  //         historyLicenseBough: [`${currentDate}|${newExpireDate}|${state.price}`],
+  //         toolName: dataProduct.productName,
+  //         productId: dataProduct.productId,
+  //         category: dataProduct.category,
+  //         paymentMethod: state.payWith,
+  //       })
+  //     } else {
+  //       const historyLicenseBough = product.historyLicenseBough || [];
+  //       return await updateLicenseRecord(product._id, {
+  //         status: 'activated',
+  //         modifyDateActivated: currentDate,
+  //         activationDays: getActivationDays(currentDate, newExpireDate),
+  //         expiresAt: newExpireDate,
+  //         currentPlan: pricePlan,
+  //         historyLicenseBough: [...historyLicenseBough, `${currentDate}|${newExpireDate}|${state.price}`],
+  //       })
+  //     }
+  //   }
+  // }
+
+  const handleBuyNow = async (dataState:Partial<typeof state>) => {
+    // dataState.price = Number('0.1').toFixed(2);
+    dataState.price = Number(dataState.price).toFixed(2);
+    setState({...dataState, loading: true});
+    if(isLoggedIn){
+      await PreCheckout(
+        ABALinkId,
+        {amount: dataState.price, full_name: user.name, email: user.email}, 
+        (isSuccessful, data)=>{
+        if(isSuccessful){
+          setState({...dataState, qrCodeImage: data.download_qr, loading: false})
+          setTimeout(()=>{
+            openModal();
+          },50)
+        }
+      })
+    } else {
+      setState({...dataState, loading: false});
+      setTimeout(()=>{
+        openModal();
+      },50)
     }
   }
 
+  const handleTryAgain = () => {
+    const link = state.link
+    const price = state.link
+    const plan = Number(state.price).toFixed(2);
+    setState({link: '', price, plan, loading: true})
+    closeModal();
+    setTimeout(()=>{
+      openModal();
+      handleBuyNow({link, price: state.price, plan, loading: false})
+    },2000)
+  }
+
   // useEffect(()=>{
-  //   logger?.log("state",state)
-  // },[state])
-
-  useEffect(()=>{
-    if(openedModal){
-      setTimeout(()=>{
-        const webview = document.querySelector('webview') as Element & {openDevTools: () => void};
-        if(webview){
-          webview.addEventListener('dom-ready', () => {
-            if(isDev)
-            webview.openDevTools()
-          })
-        }
-      },2000)
-
-      webContentSend("get-value:payment-is-paid", (_:any) => {
-        let timer = setTimeout(async () => {
-          clearTimeout(timer);
-          const dataSuccess = await updateLicense()
-          console.clear();
-          if(dataSuccess){
-            logger?.log("payment success", dataSuccess);
-            navigate('/dashboard');
-          }
-          closeModal();
-        }, 2000)
-      })
-      webContentSend("get-value:payment-is-expired", (__expiredSession) => {
-        const expiredSession = __expiredSession as string;
-        logger?.log(expiredSession)
-        const link = state.link
-        setState({link: ''})
-        closeModal();
-        setTimeout(()=>{
-          openModal();
-          setState({link: link})
-        },1500)
-      })
-    }
-  },[openedModal])
+  //   if(openedModal){
+  //     if(isDesktopApp){
+  //       setTimeout(()=>{
+  //         const webview = document.querySelector('webview') as Element & {openDevTools: () => void};
+  //         if(webview){
+  //           webview.addEventListener('dom-ready', () => {
+  //             if(isDev)
+  //             webview.openDevTools()
+  //           })
+  //         }
+  //       },2000)
+  
+  //       webContentSend("get-value:payment-is-paid", (_:any) => {
+  //         let timer = setTimeout(async () => {
+  //           clearTimeout(timer);
+  //           const dataSuccess = await updateLicense()
+  //           console.clear();
+  //           if(dataSuccess){
+  //             logger?.log("payment success", dataSuccess);
+  //             navigate('/dashboard');
+  //           }
+  //           closeModal();
+  //         }, 2000)
+  //       })
+  //       webContentSend("get-value:payment-is-expired", (__expiredSession) => {
+  //         const expiredSession = __expiredSession as string;
+  //         logger?.log(expiredSession)
+  //         handleTryAgain();
+  //       })
+  //     }
+  //   }
+  // },[openedModal])
 
   
 
@@ -268,11 +354,27 @@ export function AIOTubeDownPage({...other}) {
     },1500)
   },[])
 
-  // if(loading){
-  //   return (
-  //     <LoadingOverlay visible={true} zIndex={1000} overlayProps={{ radius: "sm", blur: 2 }} loaderProps={{ color: 'green', type: 'dots', size: 100 }}  />
-  //   )
-  // }
+  useEffect(()=>{
+    const isOffline = !Boolean(window?.navigator?.onLine);
+    let count = 0;
+    let timer = setInterval(()=>{
+      if(isOffline){
+        if(!Boolean(window?.navigator?.onLine)){
+          count++;
+        } else if(count > 1) {
+          if(isOffline){
+            window.location.reload();
+          }
+        }
+      } else {
+        clearInterval(timer);
+      }
+    },3000)
+    return () => {
+      clearInterval(timer)
+    }
+  },[])
+
 
   return (
     <div {...other}>
@@ -452,16 +554,13 @@ export function AIOTubeDownPage({...other}) {
                               const link = linkPayment(linkId);
                               const plan = item.plan;
                               const price = discountPrice;
-                              setState({link, plan, price})
-                              if(!isDesktopApp){
-                                window.open(link)
-                              } else {
-                                setTimeout(()=>{
-                                  openModal();
-                                },10)
-                              }
+                              handleBuyNow({link, plan, price})
                             }}>
-                            <IconShoppingCartFilled style={{ marginRight: 8 }} />
+                              {
+                                state.loading && state.price === discountPrice
+                                ? <Loader color="rgba(255, 255, 255, 1)" size="sm"  style={{ marginRight: 8 }}/> 
+                                : <IconShoppingCartFilled style={{ marginRight: 8 }} />
+                              }
                             Buy Now
                           </Button>
                         </div>
@@ -614,16 +713,14 @@ export function AIOTubeDownPage({...other}) {
                           const price = promotion.lifeTimePlan 
                             ? lifeTimePlan.price.discount : defaultPlan.promotion?.[promotion.discountString].price;
                           
-                          setState({link, plan, price})
-                          if(!isDesktopApp){
-                            window.open(link)
-                          } else {
-                            setTimeout(()=>{
-                              openModal();
-                            },10)
-                          }
+                          handleBuyNow({link, plan, price})
                         }}>
-                        <IconShoppingCartFilled style={{ marginRight: 8 }} />
+                        {
+                          state.loading && state.price === (promotion.lifeTimePlan 
+                          ? lifeTimePlan.price.discount : defaultPlan.promotion?.[promotion.discountString].price)
+                          ? <Loader color="rgba(255, 255, 255, 1)" size="sm"  style={{ marginRight: 8 }}/> 
+                          : <IconShoppingCartFilled style={{ marginRight: 8 }} />
+                        }
                         Buy Now
                       </Button>
                     </Box>
@@ -664,88 +761,324 @@ export function AIOTubeDownPage({...other}) {
             </Flex>
           </Box>
 
+          {/* TESTING */}
           {
-          // <Box
-          //   style={{
-          //     position: "sticky",
-          //     bottom: isDesktopApp ? 80 : 0,
-          //     left: 0,
-          //     zIndex: 99
-          //   }}
-          // >
-          //   <Flex gap={10}>
-          //     {
-          //       state.payWith === 'QR Code' &&
-          //       <Button
-          //         variant='filled'
-          //         color="orange"
-          //         size='lg'
-          //         onClick={async (e) => {
-          //           e.preventDefault();
-          //           const dataPricePlan = dataPricePlanTesting10c;
-          //           const linkId =state.payWith === 'QR Code' 
-          //             ? dataPricePlan.linkId.aba : dataPricePlan.linkId.plisio
-          //           const link = linkPayment(linkId);
-          //           const plan = dataPricePlan.plan;
-          //           const price = dataPricePlan.price;
-          //           setState({link, plan, price})
-          //           if(!isDesktopApp){
-          //             window.open(link)
-          //           } else {
-          //             setTimeout(()=>{
-          //               openModal();
-          //             },10)
-          //           }
-          //         }}>
-          //           3 Days Testing
-          //       </Button>
-          //     }
-          //     {/* <Box>
-          //       <MySelect
-          //         title={`Select Payment`}
-          //         value={state.payWith || 'QR Code'}
-          //         // onChange={setVideoResolution}
-          //         onChange={(e) => {
-          //           handlePayment({ payWith: e })
-          //           setDataPricePlan(e === 'QR Code' ? dataPricePlanABA : dataPricePlanPlisio)
-          //         }}
-          //         data={
-          //           ['QR Code',"CRYPTO"]
-          //           .map((val) => ({value: val, label: "Pay with " +(val === 'QR Code' ? 'QR Code' : "Crypto Currency")}))
-          //         }
-          //         w={240}
-          //         maxDropdownHeight={200}
-          //         radius="md"
-          //         size='md'
-          //       />
-          //     </Box> */}
-          //   </Flex>
-          // </Box>
+            // isDev &&
+            // <Box
+            //   style={{
+            //     position: "sticky",
+            //     bottom: isDesktopApp ? 80 : 0,
+            //     left: 0,
+            //     zIndex: 99
+            //   }}
+            // >
+            //   <Flex gap={10}>
+            //     {
+            //       state.payWith === 'QR Code' &&
+            //       <Button
+            //         variant='filled'
+            //         color="orange"
+            //         size='lg'
+            //         onClick={async (e) => {
+            //           e.preventDefault();
+            //           const dataPricePlan = dataPricePlanTesting10c;
+            //           const linkId =state.payWith === 'QR Code' 
+            //             ? dataPricePlan.linkId.aba : dataPricePlan.linkId.plisio
+            //           const link = linkPayment(linkId);
+            //           const plan = dataPricePlan.plan;
+            //           const price = dataPricePlan.price;
+            //           handleBuyNow({link, plan, price})
+            //         }}>
+            //           3 Days Testing
+            //       </Button>
+            //     }
+            //     {/* <Box>
+            //       <MySelect
+            //         title={`Select Payment`}
+            //         value={state.payWith || 'QR Code'}
+            //         // onChange={setVideoResolution}
+            //         onChange={(e) => {
+            //           handlePayment({ payWith: e })
+            //           setDataPricePlan(e === 'QR Code' ? dataPricePlanABA : dataPricePlanPlisio)
+            //         }}
+            //         data={
+            //           ['QR Code',"CRYPTO"]
+            //           .map((val) => ({value: val, label: "Pay with " +(val === 'QR Code' ? 'QR Code' : "Crypto Currency")}))
+            //         }
+            //         w={240}
+            //         maxDropdownHeight={200}
+            //         radius="md"
+            //         size='md'
+            //       />
+            //     </Box> */}
+            //   </Flex>
+            // </Box>
           }
           <CopyrightFooter/>
         </div>
       </Container>
 
       <Modal
-        size="100%" centered 
+        size={"md"}
+        centered 
         py={rem(10)}
         classNames={{
           header: 'py-0 px-2 !min-h-10',
           body: 'p-0',
           inner: '',
-          content: 'overflow-hidden bg-[var(--web-wash)]'
+          content: 'overflow-hidden bg-transparent'
         }}
         opened={openedModal} onClose={closeModal}
-        closeOnClickOutside={false} closeOnEscape={false} withCloseButton={true} 
+        closeOnClickOutside={false} closeOnEscape={false} 
+        withCloseButton={!isLoggedIn}
+        // scrollAreaComponent={!isDesktopApp ? ScrollArea.Autosize : undefined}
       >
-        {state.link && isDesktopApp &&
+        {/* {state.link && isDesktopApp ?
           <webview 
             src={state.link} preload={preloadJs?.replace('atom','file')} 
             style={{height: "calc(100vh - 0px)"}}
           ></webview>
+          : (
+          )
+        } */}
+        {!isLoggedIn ?
+          <div className='bg-[var(--web-wash)]'>
+            <Flex className='space-y-4 px-4 py-8' align="center" justify="center" direction={'column'} mih={240} >
+              <div>
+                <Text fz={'sm'} ta="center">
+                  You need to login first<br/>
+                  click button below to login.
+                </Text>
+              </div>
+              <Flex justify={'center'}>
+                <Button variant='filled'
+                  onClick={()=>{
+                    navigate('/login?from='+encodeURIComponent(location.pathname.replace('/tools/','/products/')))
+                  }}
+                >Goto Login</Button>
+              </Flex>
+            </Flex>
+          </div>
+          : (
+            <div>
+              <ScrollArea className='grow h-[calc(100vh-60px)]' scrollbarSize={0}>
+                <div className='flex flex-col items-center space-y-2.5 px-4 rounded mt-10 bg-[var(--web-wash)]'>
+                  <Box  mt={-40} className='space-y-2.5 z-10'>
+                    <Group justify="center">
+                      <div
+                        style={{
+                          padding: 4,
+                          borderRadius: "100%",
+                          boxShadow: "rgba(151, 65, 252, 0.2) 0 15px 30px -5px",
+                          backgroundImage: "linear-gradient(144deg,#AF40FF, #5B42F3 50%,#00DDEB)"
+                        }}
+                      >
+                        <Avatar
+                          src={avatarUrl(user.avatar)} alt={user.name} 
+                          style={{ pointerEvents: 'all' }} size={80}
+                        />
+                      </div>
+                    </Group>
+                    <div>
+                      <Text ta={'center'}>You access to pro membership for {state.plan} plan.</Text>
+                    </div>
+                  </Box>
+                  {(function(){
+                    const __state = {plan: state.plan, price: state.price, payWith: state.payWith};
+                    const __dataProduct = {...dataProduct} as Partial<typeof dataProduct>;
+                    for(let key of (['dashboardTab','description'] as const)){
+                      if(key in __dataProduct){
+                        delete __dataProduct[key]
+                      }
+                    }
+                    return(
+                      <QrCodePaymentComponent
+                        stateDataProduct={encodeJsonBtoa({state: __state, dataProduct: __dataProduct, product})}
+                        qrCodeImage={state.qrCodeImage}
+                        closeModal={closeModal}
+                        handleTryAgain={handleTryAgain} 
+                      />
+                    )
+                  })()}
+                </div>
+              </ScrollArea>
+            </div>
+          )
         }
       </Modal>
       <LoadingOverlay visible={loading} zIndex={1000} overlayProps={{ radius: "sm", blur: 2 }} loaderProps={{ color: 'green', type: 'dots', size: 100 }}  />
     </div>
   );
+}
+
+type AdditionalFields = {
+  amount: string
+  remark: string
+  full_name: string
+  email: string
+  phone: string
+}
+
+export async function PreCheckout(
+  linkId?: string, additionalFields?: Partial<AdditionalFields>,
+  callback?: (isSuccessful:boolean, data: any) => void
+){
+  const body = JSON.stringify({
+    data: encodeJsonBtoa({
+      linkId: linkId || "ABAPAYqV296653F",
+      additionalFields,
+    })
+  });
+  await fetch("/api/v1/payment/gateway/pre-checkout", {method: "POST", headers, body})
+  .then(async(res) => {
+    const data = await res.json();
+    logger?.log("data",data);
+    const isSuccessful = data && data.message === "success" && data.download_qr;
+    callback?.(isSuccessful, data);
+  })
+  .catch(err => logger?.log("error", err))
+}
+
+interface QrCodePaymentComponentProps {
+  stateDataProduct: string
+  qrCodeImage?: string
+  openModal?: () => void
+  closeModal: () => void
+  handleTryAgain: () => void
+}
+const QrCodePaymentComponent = ({
+  stateDataProduct,
+  qrCodeImage,
+  closeModal,
+  handleTryAgain,
+}: QrCodePaymentComponentProps) => {
+  const [state, setState] = useSetState({
+    qrCodeImage: isDev ? qrCodeImage?.split('49008')[1] : qrCodeImage,
+    expiredTime: '03:00',
+    action: 'request_qr'
+  })
+
+  useEffect(()=> {
+    var action = 'request_qr';
+    var tran_id = null;
+    var tran_id_no_aba = null;
+
+    var second = -1;
+    var timer = setInterval(async()=>{
+      if(second >= 180 || action === 'approved'){
+        clearInterval(timer);
+      }
+      second++;
+      if(second <= 180){
+        const expiredTime = formatDuration(180-second);
+        setState({expiredTime})
+      }
+    },1000);
+
+    var __timer = setInterval(async()=>{
+      if(second > 180 || action === 'approved'){
+        clearInterval(__timer)
+        if(action === 'approved'){
+          setState({action})
+        } else {
+          action = 'expired'
+          setState({action})
+        }
+        logger?.log("action", action)
+      } else {
+        const body = JSON.stringify({data: stateDataProduct})
+        await fetch("/api/v1/payment/gateway/check-payment", {method: "POST", headers, body})
+        .then(async(res) => {
+          const __data = await res.json();
+          logger?.log("check-payment data",__data);
+          tran_id = __data?.status?.tran_id
+          action = __data?.data?.action
+          if(__data?.errorCode || __data?.error){
+            second = 180
+            action = 'expired'
+          }
+          setState({action})
+          if(__data.message?.tran_id){
+            tran_id_no_aba = __data.message?.tran_id
+          }
+        })
+      }
+    },3000);
+
+    return () => {
+      clearInterval(timer);
+      clearInterval(__timer);
+    }
+  },[])
+
+  const isExpiredOrApproved = ['approved','expired','scanned'].some(v => v === state.action);
+  return (
+    <div className='space-y-2.5'>
+      <Box className='w-full transition-all-child'>
+        <Skeleton visible={!state.qrCodeImage} mah={!state.qrCodeImage ? 400 : undefined} radius={26}>
+          <Flex align={'center'} justify={'center'} direction={'column'} pos={'relative'} >
+            <Flex className={'absolute top-[50px] sm:top-[70px] right-5 sm:right-6 duration-1000 '.concat(state.action === 'scanned' ? 'z-[11]':'z-[9]')}
+              align={'center'} justify={'center'} 
+              hidden={['00:00','03:00'].some(v => state.expiredTime.trim() === v) || !state.qrCodeImage}
+            >
+              <Text fz={13} fw={600} c='cyan'>{state.expiredTime}</Text>
+            </Flex>
+            {
+              isExpiredOrApproved && (
+                <Box pos={'absolute'} top={0} w={'100%'} h={'100%'} className='bg-slate-50/80 rounded-[26px] z-10 max-w-[220px] sm:max-w-72'>
+                  <Flex align={'center'} justify={'center'} direction={'column'} w={'100%'} h={'100%'}>
+                    <Text fz={22} fw={700} c={'cyan'}>
+                    {
+                      state.action === 'expired' ? "Qr Code is expired" 
+                      : state.action === 'approved' ? "Your are PAID"
+                      : state.action === 'scanned' ? "Qr Code is scanned"
+                      : "Waiting. . ."
+                    }
+                    </Text>
+                    { state.action === 'approved' &&
+                      <Box mt={10} className='transition-all'>
+                        <ThemeIcon size={100} radius={'100%'} variant="gradient" gradient={{ from: 'teal', to: 'lime', deg: 105 }}>
+                          <IconCheck style={{ width: '70%', height: '70%' }} />
+                        </ThemeIcon>
+                      </Box>
+                    }
+                  </Flex>
+                </Box>
+              )
+            }
+            <Card p={0} radius={26}>
+              <Box component='img' opacity={isExpiredOrApproved ? 0.3:1} src={state.qrCodeImage} alt="qr-code payment" width={300} height={400} className='w-[220px] sm:w-72 h-auto rounded-[26px]' />
+            </Card>
+          </Flex>
+        </Skeleton>
+      </Box>
+      <Flex align={'center'} justify={'space-between'} mb={140} gap={16}>
+        <Button variant='filled' color='red'
+          onClick={closeModal}
+        >Close</Button>
+        <Button loading={!isExpiredOrApproved} loaderProps={{type: 'dots'}}
+          onClick={()=>{
+            switch (state.action) {
+              case 'expired':
+                handleTryAgain()
+                break;
+            
+              case 'approved':
+                window.location.href = window.origin + '/dashboard'
+                break;
+            
+              default:
+                break;
+            }
+          }}
+        >
+          {
+            state.action === 'expired' ? "Try again" 
+            : state.action === 'approved' ? "Goto Dashboard"
+            : "Waiting. . ."
+          }
+        </Button>
+      </Flex>
+    </div>
+  )
 }

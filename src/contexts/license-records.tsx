@@ -22,22 +22,23 @@ declare global {
     modifyDateActivated: string
     activationDays: number
     expiresAt: string
+    currentPrice: string
     currentPlan: '1 Day' | '3 Days' | '7 Days' | '1 Month' | '3 Months' | '1 Year' | 'Lifetime' | 'Family' | (string&{})
     historyLicenseBough: string[]
     toolName: string
     productId: string
     category: string
-    paymentMethod: (typeof paymentMethodData)[number]
+    paymentMethod: (typeof paymentMethodData)[number] | (string&{})
     note?: string
     options?: Record<string,any>
     error?: any;
   }
   interface LicenseRecordContextProps {
     licenseRecords: Prettify<LicenseRecord>[];
-    addLicenseRecord: (newRecord: Omit<Partial<LicenseRecord>,'userId'> & {userId:string}) => Promise<LicenseRecord[] | undefined>;
+    addLicenseRecord: (newRecord: Omit<Partial<LicenseRecord>,'userId'> & {userId:string}, user_id?:string) => Promise<LicenseRecord[] | undefined>;
     getLicenseRecords: (id: string) => Promise<LicenseRecord[] | undefined>;
-    updateLicenseRecord: (id: string, newRecord: Partial<LicenseRecord>) => Promise<LicenseRecord[] | undefined>;
-    deleteLicenseRecord: (record: Partial<LicenseRecord>) => Promise<LicenseRecord[] | undefined>;
+    updateLicenseRecord: (id: string, newRecord: Partial<LicenseRecord>, user_id?:string) => Promise<LicenseRecord[] | undefined>;
+    deleteLicenseRecord: (record: Partial<LicenseRecord>, user_id?:string) => Promise<LicenseRecord[] | undefined>;
     newLicenseRecordIsAdded: boolean;
   }
 }
@@ -93,12 +94,15 @@ export const LicenseRecordProvider = ({
       return handleOnChangeRecords(licenses)
     }) as LicenseRecord[] | undefined
 	};
-	const addRecord = async (newRecord: Partial<LicenseRecord>) => {
+	const addRecord = async (newRecord: Partial<LicenseRecord>, user_id?:string) => {
     const body = JSON.stringify(newRecord);
 
-    return await fetchLicenseRecords(userId, '', {method: "POST", headers, body}, handleRefreshToken).then(data=> {
+    return await fetchLicenseRecords(user_id||userId, '', {method: "POST", headers, body}, handleRefreshToken).then(data=> {
       logger?.log("ADD Record:", data);
       if(!data) return;
+      if(user_id){
+        return [data] as LicenseRecord[]
+      }
 
       newRecord = {...newRecord, ...data}
       newRecord.id = newRecord._id
@@ -110,24 +114,31 @@ export const LicenseRecordProvider = ({
       return handleOnChangeRecords(updateRecords)
     })
 	};
-	const updateRecord = async (id: string, record: Partial<LicenseRecord>) => {
+	const updateRecord = async (id: string, record: Partial<LicenseRecord>, user_id?:string) => {
     const body = JSON.stringify(record);
-    return await fetchLicenseRecords(userId, id, {method: "PATCH", headers, body}, handleRefreshToken).then(data=>{ 
+    return await fetchLicenseRecords(user_id || userId, id, {method: "PATCH", headers, body}, handleRefreshToken).then(data=>{ 
       logger?.log("UPDATE Record:", data)
       if(!data) return;
 
+      if(user_id){
+        return [data] as LicenseRecord[]
+      }
       record = {...record, ...data}
+
       const updateRecords = records.map(v => 
         v.id === id ? {...v, ...record} : v
       );
       return handleOnChangeRecords(updateRecords)
     })
 	};
-	const deleteRecord = async (record: Partial<LicenseRecord>) => {
-    return await fetchLicenseRecords(userId, record._id, {method: "DELETE", headers}, handleRefreshToken).then(data=>{
+	const deleteRecord = async (record: Partial<LicenseRecord>, user_id?:string) => {
+    return await fetchLicenseRecords(user_id||userId, record._id, {method: "DELETE", headers}, handleRefreshToken).then(data=>{
       logger?.log("DELETE Record:", data)
       if(!data) return;
 
+      if(user_id){
+        return [data] as LicenseRecord[]
+      }
       const updateRecords = records.filter(v => v._id !== record._id);
       return handleOnChangeRecords(updateRecords)
     })
@@ -135,9 +146,9 @@ export const LicenseRecordProvider = ({
 
   let resolveUseEffectMultiLoad = true;
   useEffect(()=>{
-    if(resolveUseEffectMultiLoad){
+    if(resolveUseEffectMultiLoad && !window?.location?.pathname?.startsWith('/tools/')){
       resolveUseEffectMultiLoad = false;
-      useEffectFunc();
+      // useEffectFunc();
     }
   },[])
 

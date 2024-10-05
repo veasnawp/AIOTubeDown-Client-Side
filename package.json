@@ -1,7 +1,7 @@
 {
   "name": "aiotubedown",
   "private": true,
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Unlimited Download and convert HD, 2k, 4k, 8k videos from YouTube and other popular websites like Facebook, Instagram, TikTok, Vimeo, DailyMotion... and support any chinese social media sites ( Douyin, Kuaishou... )",
   "type": "module",
   "scripts": {
@@ -54,6 +54,7 @@
     "cmdk": "^1.0.0",
     "date-fns": "^3.6.0",
     "destack": "^3.0.6",
+    "disable-devtool": "^0.3.7",
     "embla-carousel-react": "^8.1.5",
     "lucide-react": "^0.379.0",
     "prop-types": "^15.8.1",
@@ -72,6 +73,7 @@
   },
   "devDependencies": {
     "@tanstack/react-form": "^0.20.3",
+    "@types/crypto-js": "^4.2.2",
     "@types/jquery": "^3.5.30",
     "@types/node": "^20.12.12",
     "@types/react": "^18.2.66",

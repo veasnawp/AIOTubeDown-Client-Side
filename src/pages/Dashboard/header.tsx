@@ -31,6 +31,7 @@ import ToggleDarkMode, { computedColorScheme } from "@/components/mantine-reusab
 import { isDesktopApp } from "@/App/electron/ipc";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { avatarUrl, fetchPyServer } from "@/contexts/auth";
+import { isLocationForHideNotification } from "../main";
 
 interface HeaderProps {
   menuIcon?: React.ReactNode
@@ -44,6 +45,8 @@ export const MainHeader = ({
   const location = useLocation();
   const isProductPage = location.pathname.startsWith('/products');
   const colorScheme = computedColorScheme();
+
+  const locationForHideNotification = isLocationForHideNotification(location)
 
   const LogoElement = () => {
     return (
@@ -79,11 +82,12 @@ export const MainHeader = ({
       </Group>
       <div className="grow h-full" data-header-drag="true"></div>
       <Group h="100%" px="md" gap={0}>
-        { isDesktopApp &&
+        { 
+        !locationForHideNotification &&
           <RefreshComponent
             onClick={()=>{
               console.clear();
-              navigate('/refresh');
+              navigate('/refresh', { replace: true });
             }}
           />
         }
@@ -176,20 +180,23 @@ export function UserDropdownMenu() {
                 'transparent'
               }
             >
-              <Avatar className="shadow-sm" src={avatar } alt={user.name} radius="xl" size={30} />
+              <Avatar className="shadow-sm" src={avatarUrl(user.avatar)} alt={user.name} radius="xl" size={30} />
             </Indicator>
-            <Text className={classes.username} fw={500} size="sm" lh={1} mr={3}>
-              {user.name}
+            <Text className={''.concat(classes.username, isDesktopApp ? " hidden smd:block":"")} fw={500} size="sm" lh={1} mr={3}>
+              {
+                !isDesktopApp ? user.name
+                : isActivated ? user.name || "License Registered" : "Unregister License"
+              }
             </Text>
             <IconChevronDown
-              className={classes.username}
+              className={''.concat(classes.username, isDesktopApp ? " hidden smd:block":"")}
               style={{ width: rem(12), height: rem(12) }}
               stroke={1.5}
             />
           </Group>
         </UnstyledButton>
       </Menu.Target>
-      <Menu.Dropdown>
+      <Menu.Dropdown autoFocus={false}>
         <Menu.Item
           leftSection={
             <IconUserCircle
@@ -221,21 +228,27 @@ export function UserDropdownMenu() {
           Products
         </Menu.Item>
 
-        <Menu.Divider />
+        {
+          !isDesktopApp && (
+            <>
+            <Menu.Divider />
 
-        <Menu.Item
-          color="red"
-          leftSection={
-            <IconLogout
-              style={{ width: rem(18), height: rem(18) }}
-              stroke={1.5}
-            />
-          }
-          fz={rem(18)}
-          onClick={logOut}
-        >
-          Logout
-        </Menu.Item>
+            <Menu.Item
+              color="red"
+              leftSection={
+                <IconLogout
+                  style={{ width: rem(18), height: rem(18) }}
+                  stroke={1.5}
+                />
+              }
+              fz={rem(18)}
+              onClick={logOut}
+            >
+              Logout
+            </Menu.Item>
+            </>
+          )
+        }
 
         {/* <Menu.Label>Settings</Menu.Label>
         <Menu.Item

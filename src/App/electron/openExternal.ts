@@ -16,7 +16,9 @@ export const openExternal = ({
   callback,
   error
 }: OpenExternalProps) => {
-  ipcRendererInvoke("open-external", url, options)
-  .then(callback)
-  .catch(error);
+  try {
+    ipcRendererInvoke("open-external", url, options)
+    .then(callback)
+    .catch(error);
+  } catch {}
 };

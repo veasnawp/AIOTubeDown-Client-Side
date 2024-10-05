@@ -1,13 +1,8 @@
 import { MainDashboard } from '../Dashboard/dashboard'
 import { AIOTubeDownPage } from './AIOTubeDown'
-import { useEffectMainInterface } from '../main';
 import { Navigate, useParams } from 'react-router-dom';
-import { ContextMenu, useContextMenu } from "@/components/ContextMenu";
 
 export const ProductsPage = () => {
-  // useEffectMainInterface();
-  // const { logOut } = useAuth();
-  // const theme = useMantineTheme();
   let { productName } = useParams();
   const currentPath = productName || 'aiotubedown'
 
@@ -19,15 +14,12 @@ export const ProductsPage = () => {
   if(currentPage?.slug !== productName){
     return <Navigate to={'/products'} replace />
   }
-  
-  const { showContextMenu, points, onContextMenu } = useContextMenu();
 
   return (
     <MainDashboard classNames={{
       inner: "*:shadow-none"
     }}>
-      <currentPage.content onContextMenu={onContextMenu} />
-      <ContextMenu showContextMenu={showContextMenu} points={points}/>
+      <currentPage.content />
     </MainDashboard>
   )
 }

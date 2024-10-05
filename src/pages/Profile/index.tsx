@@ -13,6 +13,7 @@ import { Dropzone } from '@mantine/dropzone';
 import { addDays, dataProducts, getActivationDays, getNewExpireDate } from '../Products/data';
 import { avatarUrl } from '@/contexts/auth';
 import { isDesktopApp } from '@/App/electron/ipc';
+import { formatDate } from '@/utils/dateFormat/date-format';
 
 
 interface TabProps extends React.ComponentProps<typeof Tabs.Tab> {
@@ -107,6 +108,7 @@ function Profile() {
   const location = useLocation();
   const { user, updateUser } = useAuth();
   const [state, setState] = useSetState({
+    lockUsernameChange: true,
     lockEmailChange: true,
   });
   const [checkAccount, setCheckAccount] = useState('');
@@ -117,6 +119,7 @@ function Profile() {
   const form = useForm({
     initialValues: {
       name: user.name || '',
+      username: user.username || '',
       email: user.email || '',
       avatar: user.avatar || '',
     },
@@ -129,12 +132,13 @@ function Profile() {
     if((!form.getValues().email || location) && user.email){
       form.setValues({
         name: user.name || '', 
+        username: user.username, 
         email: user.email, 
         avatar: avatarUrl(user.avatar)
       });
     }
     if(!state.lockEmailChange){
-      setState({lockEmailChange: true})
+      setState({lockEmailChange: true, lockUsernameChange: true})
     }
   },[user, location])
 
@@ -148,10 +152,10 @@ function Profile() {
       <form
         onSubmit={form.onSubmit(async(values)=> {
           setIsLoading(true);
-          let { name, email } = values;
-          name = name.trim(), email = email.trim();
-          if((name !== user.name || email !== user.email) && ![name,email].every(v => v === '')){
-            const updateValue = {email,name} as Partial<UserPayload>;
+          let { name, username, email } = values;
+          name = name.trim(), username = username.trim(), email = email.trim();
+          if((name !== user.name || username !== user.username || email !== user.email) && ![name,email,username].every(v => v === '')){
+            const updateValue = {email, name, username} as Partial<UserPayload>;
             // updateValue.options = {...user.options, machineId: "BADC861D-2662-480E-89FD-E08BAE2EB4F3"}
             const userUpdate = await updateUser(updateValue);
             const isErrorUpdate = !(userUpdate && !userUpdate.error)
@@ -173,7 +177,7 @@ function Profile() {
         })}
       >
         <Stack>
-          <div className='mx-auto min-w-80'>
+          <div className='mx-auto min-w-[300px] xs:min-w-80'>
             <Dropzone
               className='bg-muted dark:bg-muted/30'
               openRef={openRef} 
@@ -209,7 +213,6 @@ function Profile() {
             >
               <Group justify="center">
                 <div
-                 
                   style={{
                     padding: 4,
                     borderRadius: "100%",
@@ -240,7 +243,31 @@ function Profile() {
           />
 
           <TextInput
-            label="Email"
+            label="Username"
+            placeholder={form.values.username.endsWith('_aiotubedown') ? "create a username" :"enter your username"}
+            value={form.values.username.endsWith('_aiotubedown') ? '' : form.values.username}
+            onChange={(event) =>
+              form.setFieldValue("username", event.currentTarget.value)
+            }
+            error={
+              checkAccount.includes('username') ? 
+              <span className="text-red-500 text-sm">
+                {checkAccount}
+              </span> : undefined
+            }
+            size='md' radius="md"
+            disabled={state.lockUsernameChange}
+            rightSection={
+              <ActionIcon
+                title={state.lockUsernameChange ? 'Click to edit username':undefined}
+                variant='light' color={state.lockUsernameChange ? 'blue':'teal'}
+                onClick={()=> setState(val => ({lockUsernameChange: !val.lockUsernameChange}))}
+              >{state.lockEmailChange ? <IconLock/> : <IconLockOpen/>}</ActionIcon>
+            }
+          />
+
+          <TextInput
+            label="Email" style={{display: isDesktopApp ? "none" : undefined}}
             placeholder="me@example.com"
             value={form.values.email}
             onChange={(event) =>
@@ -274,9 +301,11 @@ function Profile() {
   )
 }
 
+
+
 export function getOneProductFilter(
   licenseRecords: LicenseRecord[], 
-  productId: (typeof dataProducts)[number]['productId'], 
+  productId: DataProduct['productId'] | (string&{}), 
   currentDate?:number | string | Date
 ){
   const product = (licenseRecords.filter(dt => dt.productId === productId)?.[0] || {}) as Omit<LicenseRecord, "status"> & {status?: LicenseRecord['status']};
@@ -293,8 +322,10 @@ export function getOneProductFilter(
   } else if(isActivated){
     statusColor = 'green'
   }
-  let expiredDays = product.expiresAt ? getActivationDays(currentDate||new Date(), product.expiresAt) : 0
-  let isExpired = expiredDays <= 0
+  let dateNow = currentDate||new Date()
+  let expiredDays = product.expiresAt ? getActivationDays(dateNow, product.expiresAt) : 0
+  let willExpireToday = formatDate(dateNow) === formatDate(product.expiresAt)
+  let isExpired = Boolean(product.expiresAt && new Date(dateNow).getTime() > new Date(product.expiresAt).getTime()) || product.status === 'expired'
   let expiredText = 'Expired'
   let expiredColor = 'red'
   if(expiredDays > 3 && expiredDays <= 7){
@@ -308,6 +339,12 @@ export function getOneProductFilter(
   if(isLifeTime){
     expiredColor = 'green'
     expiredText = 'Lifetime'
+  }
+  if(willExpireToday){
+    expiredText = "Expired Soon"
+  }
+  if(isExpired){
+    expiredText = "Expired"
   }
 
   return { 

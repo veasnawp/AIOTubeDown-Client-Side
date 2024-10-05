@@ -28,3 +28,4 @@ export function fileParse(filePath: string) {
 }
 
 export const electronAppPath = window.electron?.appPath;
+

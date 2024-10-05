@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import DataTable, { TableColumnDef } from "@/components/data-table";
-import { ActionIcon, Box, Card, Checkbox, Collapse, Flex, Image, Menu, Progress, SegmentedControl, Text, Tooltip } from "@mantine/core";
-// import { fetchApi, headers } from "@/contexts/auth";
-import logger from "@/helper/logger";
-import { IconArrowsUpDown, IconChevronDown, IconChevronUp, IconClockHour3, IconDots, IconDownload, IconEye, IconFolderCode, IconHeart, IconMessageCircle, IconPlayerPlay, IconSortAscendingLetters, IconSortAZ, IconSortDescendingLetters, IconSortZA, IconWorld } from "@tabler/icons-react";
-import { useDownload } from "@/contexts";
+import { ActionIcon, Box, Card, Checkbox, Flex, Menu, Progress, SegmentedControl, Text, Tooltip } from "@mantine/core";
+
+import { IconArrowsUpDown, IconClockHour3, IconCopy, IconCopyCheck, IconDots, IconDownload, IconEye, IconFolderCode, IconHeart, IconLoader, IconMessageCircle, IconPlayerPlay, IconSortAscendingLetters, IconSortDescendingLetters, IconWorld } from "@tabler/icons-react";
+import { useAuth, useDownload } from "@/contexts";
 import { ContentEmbed } from "@/components/mantine-reusable/ContentEmbed";
-import { defaultHeaders, localhostApi, staticIcons } from "@/api/backend/config";
+import { defaultHeaders, staticIcons } from "@/api/backend/config";
 import { formatDuration } from "@/utils/format";
 import { encodeJsonBtoa, removeDuplicateObjArray } from "@/utils";
 import axios from "axios";
@@ -14,18 +13,20 @@ import { dataTabs } from "@/contexts/download-data";
 import {
   Table as TanstackTable,
 } from "@tanstack/react-table";
-import { ipcRendererInvoke, isDesktopApp } from "@/App/electron/ipc";
+import { ipcRendererInvoke, isDesktopApp, localBackend } from "@/App/electron/ipc";
+import { useSetState } from "@mantine/hooks";
 
-const data: IYouTube[] = [...Array(10).keys()].map((n) => ({
-  progressId: "download-progressId-1234-" + (n + 1),
-  info_dict: {
-    id: "videoId-1234-" + (n + 1),
-    title: "video title " + (n + 1),
-    duration: Math.round(Math.random() * 100 * (n + 1)),
-  },
-}));
+// const data: IYouTube[] = [...Array(10).keys()].map((n) => ({
+//   progressId: "download-progressId-1234-" + (n + 1),
+//   info_dict: {
+//     id: "videoId-1234-" + (n + 1),
+//     title: "video title " + (n + 1),
+//     duration: Math.round(Math.random() * 100 * (n + 1)),
+//   },
+// }));
 
 export interface TableMetaOptions {
+  useAuthData: ReturnType<typeof useAuth>
   useDownloadData: ReturnType<typeof useDownload>
   dataCurrentRow?: IYouTube
   setDataCurrentRow: React.Dispatch<React.SetStateAction<IYouTube | undefined>>
@@ -33,7 +34,7 @@ export interface TableMetaOptions {
   // deleteRecord: (record: FinancialRecord) => void
 }
 
-const columns: TableColumnDef<(typeof data)[0]>[] = [
+const columns: TableColumnDef<IYouTube>[] = [
   {
     id: "select",
     className: {
@@ -94,10 +95,12 @@ const columns: TableColumnDef<(typeof data)[0]>[] = [
     },
     cell: ({ row, table }) => {
       const {
+        useAuthData,
         useDownloadData,
         dataCurrentRow, setDataCurrentRow
       } = table.options.meta as TableMetaOptions
-      const { downloadSettings, downloadProgressBar } = useDownloadData
+      const { stateHelper } = useAuthData;
+      const { downloadSettings, downloadProgressBar } = useDownloadData;
 
       let data = row.original as (IYouTube & DownloadProgressProps)
       const info = data.info_dict;
@@ -168,7 +171,7 @@ const columns: TableColumnDef<(typeof data)[0]>[] = [
         ? `/ct-image?data=${encodeJsonBtoa({url:info.thumbnail, ...size, placeholder: true})}` 
         : placeholder
 
-      let currentDate = new Date()
+      // let currentDate = new Date()
       // if(data.createTime){
       //   const linkExpired = new Date(data.createTime).toISOString().split('T')[0] < currentDate.toISOString().split('T')[0]
       //   if(linkExpired && ['tiktok'].some(v => extractor === v)){
@@ -268,12 +271,12 @@ const columns: TableColumnDef<(typeof data)[0]>[] = [
                     }
                     <Flex align={"center"} justify={"center"} gap={4}>
                       {
-                        favicon
+                        favicon && stateHelper.serverIsLive
                         ? <img src={favicon} width={16} height={16} />
                         : <IconWorld size={15} />
                       }
                       <Text span fz={12.5} lh={0}>{favicon || extractor !== "generic" ? info.extractor_key : (() => {
-                        let domain = String(info.webpage_url_domain)
+                        let domain = String(info.webpage_url_domain || new URL(info.original_url as string).host)
                         let domainSplit = domain.split(".")
                         if (domainSplit.length >= 3 && domain.length > 30){
                           domainSplit = domainSplit.slice(1)
@@ -284,90 +287,19 @@ const columns: TableColumnDef<(typeof data)[0]>[] = [
                   </Flex>
                 </div>
               </Flex>
+              <Flex direction={'column'} justify={'center'} align={'center'} hidden={!(isCompletedWithMetadata || isUncompleted)}>
+                <Box ml={16}>
+                  <TableActionMenu data={data} metadata={metadata} />
+                </Box>
+              </Flex>
               {
-                isDesktopApp ? (
-                  isCompletedWithMetadata ? (
-                    <Flex direction={'column'} justify={'center'} align={'center'}>
-                      <Box ml={16}>
-                        <TableActionMenu metadata={metadata} />
-                      </Box>
-                    </Flex>
-                  )
-                  : isWaiting ? (
-                    <Flex direction={'column'} justify={'center'} align={'center'}>
-                      <Box ml={16}>
-                        <ActionIcon unstyled title="Stop Download"
-                          onClick={()=> {
-                            ipcRendererInvoke("write-text-loop", "logger.txt", progressIdTime);
-                          }}
-                        >
-                          <IconPlayerPlay color={"orange"} />
-                        </ActionIcon>
-                      </Box>
-                    </Flex>
-                  )
-                  : ''
-                ) 
-                  // : isCompleted && data.progress >= 100 ? (
-                  //   <Flex direction={'column'} justify={'center'} align={'center'}>
-                  //     <Box ml={16}>
-                  //     <ActionIcon 
-                  //       title="Click to download"
-                  //       variant="filled" color="green"
-                  //       size={30}
-                  //       radius={'100%'}
-                  //       onClick={async()=>{
-                  //         const linkDL = data.linkDL;
-                  //         if(linkDL){
-                  //           // const res = await fetch(linkDL + '&redirect=true');
-                  //           // logger?.log(res.url)
-                  //           // window.open(res.url);
-                  //           try {
-                  //             let ext = 'mp4'
-                  //             const res = await fetch(linkDL + '&redirect=true');
-                  //             const type = res.headers.get('content-type');
-                  //             if(type && !type.includes('text')){
-                  //               ext = type?.split('/')[1]?.split(';')[0];
-                  //               const blob = await res.blob();
-                  //               var a = document.createElement("a");
-                  //               a.href = window.URL.createObjectURL(blob);
-                  //               logger?.log(a.href)
-                  //               a.download = `${data.output_filename || info.title.substring(0,155)}.${ext}`;
-                  //               a.click();
-                  //             } else {
-                  //               logger?.log("content-type",type)
-                  //             }
-                  //           } catch (error) {
-                  //             logger?.log("open download error", error)
-                  //           }
-                  //         }
-                  //       }}
-                  //     >
-                  //       <IconDownload  />
-                  //     </ActionIcon>
-                  //     </Box>
-                  //   </Flex>
-                // ) 
-                : ''
-              }
-              {
-                // isCompletedWithMetadata && (
-                //   <Flex direction={'column'} justify={'center'} align={'center'}>
-                //     <Box ml={16}>
-                //       <ActionIcon unstyled title="Stop Download"
-                //         onClick={()=> {
-                //           if(isHighResolution && isYouTube){
-
-                //           } else {
-                //             ipcRendererInvoke("write-text-loop", "logger.txt", progressIdTime);
-                //           }
-                //         }}
-                //       >
-                //         <IconPlayerPlay color={"orange"} />
-                //       </ActionIcon>
-                //     </Box>
-                //   </Flex>
-                // )
+                isDesktopApp && isWaiting && (
+                  <Flex direction={'column'} justify={'center'} align={'center'}>
+                    <Box ml={16}>
+                      <StopDownload progressIdTime={progressIdTime} />
+                    </Box>
+                  </Flex>
+                )
               }
             </Flex>
             {
@@ -401,6 +333,51 @@ const columns: TableColumnDef<(typeof data)[0]>[] = [
   //   },
   // },
 ];
+
+export const DomainIcon = ({favicon}:{favicon?:string}) => {
+  const {stateHelper} = useAuth();
+  const [domainIcon, setDomainIcon] = useState(favicon);
+  useEffect(()=>{
+    if(stateHelper.serverIsLive){
+      setDomainIcon(favicon);
+    }
+  },[stateHelper.serverIsLive])
+
+  return (
+    stateHelper.serverIsLive
+      ? <img src={domainIcon} width={16} height={16} />
+      : <IconWorld size={15} />
+  )
+}
+
+interface StopDownloadProps {
+  // data: IYouTube
+  progressIdTime: string
+}
+export const StopDownload = ({
+  // data,
+  progressIdTime
+}: StopDownloadProps) => {
+  const [loading, setIsLoading] = useState(false);
+
+  return (
+    <ActionIcon unstyled title={loading ? "Stopping. . ." : "Stop Download"}
+      onClick={(e)=> {
+        e.preventDefault();
+        setIsLoading(true);
+        ipcRendererInvoke("write-text-loop", "logger.txt", progressIdTime);
+        setTimeout(()=>{
+          setIsLoading(false);
+        },3000)
+      }}
+    >
+      { loading 
+        ? <IconLoader color={"cyan"} />
+        : <IconPlayerPlay color={"orange"} />
+      }
+    </ActionIcon>
+  )
+}
 
 interface DownloadingProgressBarProps {
   downloadProgressBarId: IYouTube & DownloadProgressProps
@@ -546,11 +523,73 @@ export function InfoCountType(info: IYouTube['info_dict'], key: Key){
 }
 
 interface TableActionMenuProps {
+  data: IYouTube
   metadata?: FileMetadata | null
 }
 function TableActionMenu({
+  data,
   metadata
 }: TableActionMenuProps){
+  const info = data.info_dict;
+
+  const [state, setState] = useSetState({
+    isCopy: false,
+  })
+
+  const defaultMenu = (label:string, copyText?:string)=>{
+    return {
+      label: label,
+      icon: function () {
+        const Icon = state.isCopy ? IconCopyCheck : IconCopy;
+
+        return <Icon
+          size={18}
+          stroke={1.5}
+          color={state.isCopy ? 'green':undefined}
+        />
+      },
+      onClick(){
+        if(copyText){
+          window.navigator.clipboard.writeText(copyText);
+          setState({isCopy: true});
+          setTimeout(()=> setState({isCopy: false}), 1500)
+        }
+      }
+    }
+  }
+
+  let dataMenus = [
+    defaultMenu('Copy Title', info.title),
+    defaultMenu('Copy Link', info.original_url),
+  ];
+
+  if(info.description && info.description.trim() !== info.title.trim()){
+    dataMenus.splice(1, 0, defaultMenu('Copy Description', info.description))
+  }
+  if(isDesktopApp && metadata && metadata.folderPath){
+    dataMenus = [
+      ...dataMenus,
+      {
+        label: "Open Folder",
+        icon: function () {
+          return <IconFolderCode
+            size={18}
+            stroke={1.5}
+          />
+        },
+        async onClick(){
+          if(metadata && isDesktopApp){
+            try {
+              await axios.post(`${localBackend}/openfolder`, {
+                file_path: metadata.folderPath ?? ""
+              }, defaultHeaders)
+            } catch {}
+          }
+        }
+      },
+    ]
+  }
+
   return (
     <Menu transitionProps={{ transition: 'pop' }} position="left-end" withinPortal shadow="sm">
       <Menu.Target>
@@ -565,29 +604,23 @@ function TableActionMenu({
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
-        <Menu.Item
-          fw={600}
-          leftSection={
-            <Text unstyled span c={'blue'}>
-              <IconFolderCode
-                size={18}
-                stroke={1.5}
-                // color={theme.colors.blue[5]}
-              />
-            </Text>
-          }
-          onClick={async () => {
-            if(metadata){
-              try {
-                await axios.post(localhostApi('/openfolder'), {
-                  file_path: metadata.folderPath ?? ""
-                }, defaultHeaders)
-              } catch {}
-            }
-          }}
-        >
-          Open Folder
-        </Menu.Item>
+        {
+          [...dataMenus].map(item => {
+
+            return (
+              <Menu.Item key={item.label} fw={600}
+                leftSection={
+                  <Text unstyled span c={'blue'}>
+                    <item.icon/>
+                  </Text>
+                }
+                onClick={item.onClick}
+              >
+                {item.label}
+              </Menu.Item>
+            )
+          })
+        }
       </Menu.Dropdown>
     </Menu>
   )
@@ -606,7 +639,8 @@ export function DownloadData({
   onTableChange,
   onRowSelection
 }: DownloadDataProps) {
-  const useDownloadData = useDownload()
+  const useAuthData = useAuth();
+  const useDownloadData = useDownload();
   const { 
     downloadRecords, addManyDownloadRecords,
     simpleData, updateSimpleData,
@@ -673,6 +707,7 @@ export function DownloadData({
             onRowSelection={dataTable.onRowSelection}
             reactTableProps={{
               meta: {
+                useAuthData,
                 dataCurrentRow,
                 setDataCurrentRow,
                 useDownloadData

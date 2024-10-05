@@ -1,6 +1,6 @@
 
 type ObjectArray<T> = Exclude<T, null | undefined | boolean | bigint>
-type ObjectType<T> = ObjectArray<T>
+type ObjectType<T> = Extract<T, object>
 type ArrayType<T> = T extends ObjectArray<T> & { length: number } ? T : never
 
 export function isObject<T>(obj: T): obj is ObjectType<T> {
@@ -100,7 +100,7 @@ export function setCookie(cookieName: string, cookieValue: string, expireDays?:n
   var d = new Date();
   d.setTime(d.getTime() + (expireDays || 30) * 24 * 3600 * 1000);
   var expires = "expires=" + d.toUTCString();
-  document.cookie = 
+  document.cookie = document.cookie + "; " +
     cookieName + "=" + cookieValue + ";" + expires + ";path=/" + (domain ? '; domain=.' + domain + ';' : "");
 }
 
@@ -155,12 +155,33 @@ export function uts_unscramble(v: string) {
   return o;
 }
 
-export const encodeJsonBtoa = (obj:object) => {
+export function encodeJsonBtoa(obj:object){
   let urlJson = encodeURIComponent(JSON.stringify(obj))
   return btoa(unescape(urlJson))
 }
 
-export const decodeJsonBtoa = (data:string) => {
+export function decodeJsonBtoa(data:string){
   var decodeAtob = atob(data)
   return JSON.parse(decodeURIComponent(escape(decodeAtob)))
+}
+
+
+export function decodeEntities(text:string) {
+  // this prevents any overhead from creating the object each time
+  var element = document.createElement('div');
+
+  function decodeHTMLEntities (str:string) {
+    if(str && typeof str === 'string') {
+      // strip script/html tags
+      str = str.replace(/<script[^>]*>([\S\s]*?)<\/script>/gmi, '');
+      str = str.replace(/<\/?\w(?:[^"'>]|"[^"]*"|'[^']*')*>/gmi, '');
+      element.innerHTML = str;
+      str = (element.textContent as string);
+      element.textContent = '';
+    }
+
+    return str;
+  }
+
+  return decodeHTMLEntities(text);
 }
